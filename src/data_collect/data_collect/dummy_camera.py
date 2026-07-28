@@ -3,14 +3,14 @@ import rclpy
 import numpy as np
 from rclpy.node import Node
 from sensor_msgs.msg import Image
-from data_collect import qos
+from data_collect import qos, topics
 
 class DummyCamera(Node):
     def __init__(self):
         super().__init__("dummy_camera")
         self.__set_parameter()
         self.dummy_image = np.zeros((self.height, self.width, 3), np.uint8).tobytes()
-        self.publisher = self.create_publisher(Image, '/sensors/camera/image_raw', qos.CAMERA_QOS)
+        self.publisher = self.create_publisher(Image, topics.CAMERA_IMAGE, qos.CAMERA_QOS)
         self.timer = self.create_timer(1 / self.fps, self.on_tick)
 
     def __set_parameter(self):

@@ -3,7 +3,7 @@ import rclpy
 import numpy as np
 from rclpy.node import Node
 from data_collect_msgs.msg import AudioChunk
-from data_collect import qos
+from data_collect import qos, topics
 from numpy.typing import NDArray
 import array
 
@@ -14,7 +14,7 @@ class DummyAudio(Node):
         super().__init__("dummy_audio")
         self._set_parameter()
         self.sine_offset = 0
-        self.publisher = self.create_publisher(AudioChunk, '/sensors/audio/chunk', qos.AUDIO_QOS)
+        self.publisher = self.create_publisher(AudioChunk, topics.AUDIO_CHUNK, qos.AUDIO_QOS)
         chunk_period = self.sample_count / self.sample_rate
         self.timer = self.create_timer(chunk_period, self.on_tick)
 
