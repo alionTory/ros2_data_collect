@@ -1,3 +1,6 @@
+"""
+프로토콜 정의 파일. 데이터 캡처 측과 수집 측 간의 통신에 사용됨.
+"""
 import struct
 import socket
 from typing import NamedTuple
