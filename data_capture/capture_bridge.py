@@ -12,6 +12,8 @@ from queue import Queue
 
 class VideoCapturer:
     MAX_CONSECUTIVE_CAPTURE_FAILURE = 30
+    FRAME_WIDTH = 640
+    FRAME_HEIGHT = 480
     def __init__(self):
         self.seq = 0
         self.capture_fail_count = 0
@@ -22,6 +24,11 @@ class VideoCapturer:
         if not self.cap.isOpened():
             print("카메라를 사용할 수 없습니다.")
             exit()
+        
+        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, VideoCapturer.FRAME_WIDTH)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, VideoCapturer.FRAME_HEIGHT)
+        print(f"카메라 설정됨. 너비: {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)}, 높이: {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.connect(('127.0.0.1', protocol.DEFAULT_PORT))
