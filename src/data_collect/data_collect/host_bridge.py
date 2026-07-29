@@ -12,6 +12,7 @@ import errno
 import time
 import cv2
 import numpy as np
+import array
 import threading
 
 SOCKET_ACCEPT_RETRYABLE = {errno.ECONNABORTED, errno.EPROTO, errno.EPERM, errno.EMFILE, errno.ENFILE, errno.ENOBUFS, errno.ENOMEM}
@@ -152,16 +153,14 @@ class HostBridge(Node):
     
     def _deque_and_send(self):
         """queue에서 데이터를 꺼내, 이미지 디코딩 후 토픽에 발행하는 콜백"""
-        is_queue_empty = False
-        while not is_queue_empty :
-            try:
-                frame = self.queue.popleft()
-                message = self._image_to_message(frame)
-                if message is not None:
-                    self.publisher.publish(message)
-                    self.published += 1
-            except IndexError:
-                is_queue_empty = True
+        try:
+            frame = self.queue.popleft()
+            message = self._image_to_message(frame)
+            if message is not None:
+                self.publisher.publish(message)
+                self.published += 1
+        except IndexError:
+            pass
             
     def _image_to_message(self, frame: protocol.Frame):
         """
@@ -175,7 +174,6 @@ class HostBridge(Node):
             self.decode_failed += 1
         else:
             message = Image()
-
             # 이미지 캡쳐 프로그램이 이 노드와 같은 기기에서 실행된다고 가정하고, 캡처 측 시간을 메시지에 그대로 저장.
             message.header.stamp = Time(nanoseconds=frame.timestamp_ns).to_msg()
             message.header.frame_id = self.frame_id
@@ -183,7 +181,7 @@ class HostBridge(Node):
             message.encoding = 'bgr8'
             message.is_bigendian = 0
             message.step = message.width * 3
-            message.data = bgr_sequence.tobytes()
+            message.data = array.array('B', bgr_sequence.tobytes())
         return message
     
     def _report(self):
