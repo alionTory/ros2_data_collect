@@ -6,12 +6,10 @@ from rclpy.node import Node
 from rclpy.time import Time
 from data_collect import protocol, topics, qos
 from collections import deque
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CompressedImage
 import socket
 import errno
 import time
-import cv2
-import numpy as np
 import array
 import threading
 
@@ -28,7 +26,7 @@ class HostBridge(Node):
         self.overflow_count = 0
         """수신에는 성공했으나, 큐 크기 부족으로 유실된 프레임 개수."""
         
-        self.publisher = self.create_publisher(Image, topics.CAMERA_IMAGE, qos.CAMERA_QOS)
+        self.publisher = self.create_publisher(CompressedImage, topics.CAMERA_IMAGE, qos.CAMERA_QOS)
 
         self.running = True
         """노드를 계속 실행해야 하는지 여부. False이면 노드의 모든 스레드가 종료된다."""
@@ -50,8 +48,8 @@ class HostBridge(Node):
         연결이 끊긴 후 재접속한 횟수.
         """
 
-        self.decode_failed = 0
-        """이미지 디코딩에 실패한 횟수"""
+        self.invalid_jpeg = 0
+        """JPEG 이미지 검증에 실패한 횟수"""
 
         self.published = 0
         """토픽으로 메시지 발행에 성공한 횟수"""
@@ -164,31 +162,40 @@ class HostBridge(Node):
             
     def _image_to_message(self, frame: protocol.Frame):
         """
-        Frame의 페이로드를 디코딩하여, Image 메시지로 변환.
+        Frame의 페이로드를 디코딩하여, CompressedImage 메시지로 변환.
         
         디코딩 실패 시, self.decode_failed를 1 증가시키고 None 반환.
         """
         message = None
-        bgr_sequence = cv2.imdecode(np.frombuffer(frame.payload, np.uint8), cv2.IMREAD_COLOR)
-        if bgr_sequence is None:
-            self.decode_failed += 1
-        else:
-            message = Image()
+        if self._validate_jpeg(frame.payload):
+            message = CompressedImage()
             # 이미지 캡쳐 프로그램이 이 노드와 같은 기기에서 실행된다고 가정하고, 캡처 측 시간을 메시지에 그대로 저장.
             message.header.stamp = Time(nanoseconds=frame.timestamp_ns).to_msg()
             message.header.frame_id = self.frame_id
-            message.height, message.width = bgr_sequence.shape[:2]
-            message.encoding = 'bgr8'
-            message.is_bigendian = 0
-            message.step = message.width * 3
-            message.data = array.array('B', bgr_sequence.tobytes())
+            message.format = 'jpeg'
+            message.data = array.array('B', frame.payload)
+        else:
+            self.invalid_jpeg += 1
         return message
+    
+    def _validate_jpeg(self, jpeg: bytes):
+        """
+        jpeg 인수가 올바른 JPEG 바이트열인지를 검사해, 올바르다고 판단되면 True를 리턴. 
+        
+        앞의 두 바이트와 끝의 두 바이트를 통해 검증한다.
+        TCP 프레이밍이 잘못 되었음을 감지하는데 사용 가능.
+        """
+        if jpeg[:2] == b'\xff\xd8' and jpeg[-2:] == b'\xff\xd9':
+            return True
+        else:
+            self.corrupt += 1
+            return False
     
     def _report(self):
         """노드 상태를 출력하는 콜백."""
         self.get_logger().info(
             f"발행 성공={self.published}. 유실된 프레임={self.dropped_frame_count}\n"
-            f"큐 오버플로={self.overflow_count}. 디코딩 실패={self.decode_failed}\n"
+            f"큐 오버플로={self.overflow_count}. JPEG 검증 실패={self.invalid_jpeg}\n"
             f"캡처 시스템에 재접속={self.reconnect_count}"
         )
     
