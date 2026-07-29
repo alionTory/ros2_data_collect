@@ -8,12 +8,12 @@ from data_collect import qos, topics
 class DummyCamera(Node):
     def __init__(self):
         super().__init__("dummy_camera")
-        self.__set_parameter()
+        self._parameters_setup()
         self.dummy_image = np.zeros((self.height, self.width, 3), np.uint8).tobytes()
         self.publisher = self.create_publisher(Image, topics.CAMERA_IMAGE, qos.CAMERA_QOS)
         self.timer = self.create_timer(1 / self.fps, self.on_tick)
 
-    def __set_parameter(self):
+    def _parameters_setup(self):
         self.declare_parameter('fps', 30)
         self.declare_parameter('width', 800)
         self.declare_parameter('height', 600)

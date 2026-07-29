@@ -40,9 +40,11 @@ class Frame(NamedTuple):
     payload: bytes
 
 def pack_frame(message_type: int, timestamp_ns: int, seq: int, payload: bytes) -> bytes:
+    """바이트 시퀀스 데이터 생성"""
     return HEADER.pack(len(payload), message_type, timestamp_ns, seq) + payload
 
 def parse_frame(buffer: bytes) -> Frame:
+    """바이트 시퀀스 데이터를 Frame 객체로 변환"""
     if len(buffer) < HEADER.size:
         raise ProtocolError(f"버퍼가 헤더보다 짧음. 버퍼 길이: {len(buffer)}")
     length, message_type, timestamp_ns, seq = HEADER.unpack_from(buffer)
@@ -67,6 +69,7 @@ def recv_exact(sock: socket.socket, n: int) -> bytes:
     return bytes(buffer)
 
 def read_frame(sock: socket.socket) -> Frame:
+    """소켓에서 프레임 데이터를 읽음."""
     buffer = recv_exact(sock, HEADER.size)
     length, message_type, timestamp_ns, seq = HEADER.unpack_from(buffer)
     if MAX_PAYLOAD < length:
@@ -80,6 +83,7 @@ def read_frame(sock: socket.socket) -> Frame:
     )
 
 def send_frame(sock: socket.socket, message_type: int, timestamp_ns: int, seq: int, payload: bytes):
+    """프레임을 sock으로 전송"""
     buffer = pack_frame(message_type, timestamp_ns, seq, payload)
     sock.sendall(buffer)
 

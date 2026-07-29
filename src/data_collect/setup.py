@@ -27,8 +27,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'dummy_camera = data_collect.dummy_camera:main',
             'dummy_audio = data_collect.dummy_audio:main',
+            'host_bridge = data_collect.host_bridge:main',
         ],
     },
 )
