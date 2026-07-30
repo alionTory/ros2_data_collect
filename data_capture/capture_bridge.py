@@ -125,6 +125,7 @@ class VideoCapturer:
         self.next_seq = 0
         self.capture_fail_count = 0
         self.consecutive_capture_fail_count = 0
+        self.first_video_capture_time = None
         self.running = True
     
     def __enter__(self):
@@ -169,6 +170,8 @@ class VideoCapturer:
         image_raw를 jpeg로 인코딩한 뒤 self.frame_sender에 넣음.
         """
         timestamp = time.time_ns()
+        if self.first_video_capture_time is None: 
+            self.first_video_capture_time = timestamp
         self.consecutive_capture_fail_count = 0
         # IMWRITE_JPEG_QUALITY는 jpeg의 품질을 설정함. 0~100 사이 값.
         encoding_success, jpg = cv2.imencode('.jpg', image_raw, [cv2.IMWRITE_JPEG_QUALITY, 85])
@@ -193,6 +196,9 @@ class AudioCapturer:
         self.adc_time_invalid_count = 0
 
         self.next_seq = 0
+        
+        self.first_audio_capture_time = None
+        """첫 청크의 첫 샘플 수집 시각"""
         
     
     def __enter__(self):
@@ -242,7 +248,10 @@ class AudioCapturer:
         else:
             first_sample_age_seconds = time_info.currentTime - time_info.inputBufferAdcTime
         
-        return now_ns - int(first_sample_age_seconds * 1e9)
+        result = now_ns - int(first_sample_age_seconds * 1e9)
+        if self.first_audio_capture_time is None:
+            self.first_audio_capture_time = result
+        return result
 
 
 
