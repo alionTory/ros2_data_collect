@@ -12,6 +12,25 @@ import queue
 import threading
 import sounddevice as sd
 
+class CaptureWindow:
+    """한 소스가 실제로 데이터를 낸 시간 구간을 기록.
+
+    소스마다 준비 시간이 달라(오디오 장치 열기, 카메라 워밍업) 시작 시각이 다르다. 
+    전역 시작 시각으로 Hz를 계산하면 늦게 시작한 소스의 시간이 과대평가된다.
+    """
+
+    def __init__(self):
+        self.first_ns: int | None = None
+        self.last_ns: int | None = None
+
+    def mark(self, timestamp_ns: int):
+        if self.first_ns is None:
+            self.first_ns = timestamp_ns
+        self.last_ns = timestamp_ns
+
+    def snapshot(self) -> tuple[int | None, int | None]:
+        return self.first_ns, self.last_ns
+
 class AtomicCounter:
     def __init__(self, initial_value):
         self._lock = threading.Lock()
@@ -125,7 +144,7 @@ class VideoCapturer:
         self.next_seq = 0
         self.capture_fail_count = 0
         self.consecutive_capture_fail_count = 0
-        self.first_video_capture_time = None
+        self.capture_window = CaptureWindow()
         self.running = True
     
     def __enter__(self):
@@ -170,8 +189,7 @@ class VideoCapturer:
         image_raw를 jpeg로 인코딩한 뒤 self.frame_sender에 넣음.
         """
         timestamp = time.time_ns()
-        if self.first_video_capture_time is None: 
-            self.first_video_capture_time = timestamp
+        self.capture_window.mark(timestamp)
         self.consecutive_capture_fail_count = 0
         # IMWRITE_JPEG_QUALITY는 jpeg의 품질을 설정함. 0~100 사이 값.
         encoding_success, jpg = cv2.imencode('.jpg', image_raw, [cv2.IMWRITE_JPEG_QUALITY, 85])
@@ -197,8 +215,7 @@ class AudioCapturer:
 
         self.next_seq = 0
         
-        self.first_audio_capture_time = None
-        """첫 청크의 첫 샘플 수집 시각"""
+        self.capture_window = CaptureWindow()
         
     
     def __enter__(self):
@@ -230,6 +247,7 @@ class AudioCapturer:
         if status:
             self.error_status_count += 1
         timestamp_ns = self._first_sample_capture_time_ns(time_info, frames)
+        self.capture_window.mark(timestamp_ns)
         pcm = indata.copy().tobytes()  # 버퍼가 재사용되므로 copy 필수
         payload = protocol.pack_audio(self.audio_frame_rate, AudioCapturer.CHANNELS, pcm)
         self.message_sender.put_audio(timestamp_ns, seq, payload)
@@ -248,10 +266,7 @@ class AudioCapturer:
         else:
             first_sample_age_seconds = time_info.currentTime - time_info.inputBufferAdcTime
         
-        result = now_ns - int(first_sample_age_seconds * 1e9)
-        if self.first_audio_capture_time is None:
-            self.first_audio_capture_time = result
-        return result
+        return now_ns - int(first_sample_age_seconds * 1e9)
 
 
 
