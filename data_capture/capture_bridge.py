@@ -28,6 +28,7 @@ class FrameSender:
         """
 
         self.send_success = {protocol.TYPE_VIDEO_JPEG: 0, protocol.TYPE_AUDIO_PCM: 0}
+        self.send_failed = {protocol.TYPE_VIDEO_JPEG: 0, protocol.TYPE_AUDIO_PCM: 0}
 
         self.video_in_queue_count = 0
         self.video_overflow = 0
@@ -60,11 +61,14 @@ class FrameSender:
         
         큐에 자리가 없으면 인수로 주어진 데이터를 버린다.
         """
-        if self.video_in_queue_count == FrameSender.VIDEO_IN_QUEUE_MAX:
+        if self.video_in_queue_count >= FrameSender.VIDEO_IN_QUEUE_MAX:
             self.video_overflow += 1
         else:
-            self.queue.put_nowait((protocol.TYPE_VIDEO_JPEG, timestamp_ns, seq, jpeg))
-            self.video_in_queue_count += 1
+            try:
+                self.queue.put_nowait((protocol.TYPE_VIDEO_JPEG, timestamp_ns, seq, jpeg))
+                self.video_in_queue_count += 1
+            except queue.Full:
+                self.video_overflow += 1
 
     
     def put_audio(self, timestamp_ns: int, seq: int, payload: bytes):
@@ -80,9 +84,15 @@ class FrameSender:
     
     def _send_loop(self):
         while self.running:
-            payload_type, timestamp_ns, seq, payload = self.queue.get()
-            protocol.send_frame(self.sock, payload_type, timestamp_ns, seq, payload)
-            self.send_success[payload_type] += 1
+            payload_type, timestamp_ns, seq, payload = self.queue.get(timeout=0.2)
+            if payload_type == protocol.TYPE_VIDEO_JPEG:
+                self.video_in_queue_count -= 1
+            try:
+                protocol.send_frame(self.sock, payload_type, timestamp_ns, seq, payload)
+                self.send_success[payload_type] += 1
+            except Exception:
+                self.send_failed[payload_type] += 1
+                
             
 
 class VideoCapturer:
@@ -175,8 +185,9 @@ class AudioCapturer:
             callback=self._audio_callback,
         )
         self.audio_input_stream.start()
+        self.audio_frame_rate = self.audio_input_stream.samplerate 
         print(f"오디오 설정됨. 장치: {self.audio_input_stream.device}")
-        print(f"오디오 프레임 레이트: {self.audio_input_stream.samplerate}, 지연: {self.audio_input_stream.latency:.4f}s")
+        print(f"오디오 프레임 레이트: {self.audio_frame_rate}, 지연: {self.audio_input_stream.latency:.4f}s")
         return self
 
     def __exit__(self, exc_type, exc, tb):
@@ -194,7 +205,7 @@ class AudioCapturer:
             self.error_status_count += 1
         timestamp_ns = self._first_sample_capture_time_ns(time_info, frames)
         pcm = indata.copy().tobytes()  # 버퍼가 재사용되므로 copy 필수
-        payload = protocol.pack_audio(AudioCapturer.AUDIO_FRAME_RATE, AudioCapturer.CHANNELS, pcm)
+        payload = protocol.pack_audio(self.audio_frame_rate, AudioCapturer.CHANNELS, pcm)
         self.message_sender.put_audio(timestamp_ns, seq, payload)
         
     def _first_sample_capture_time_ns(self, time_info, frame_count):
@@ -207,7 +218,7 @@ class AudioCapturer:
             self.adc_time_invalid_count += 1
 
             # 근사값. 청크 첫 샘플 취득 이후 마지막 샘플 취득까지 걸린 시간만 고려. 마지막 샘플 취득 후 콜백 호출까지 걸린 시간은 무시.
-            first_sample_age_seconds = frame_count / AudioCapturer.AUDIO_FRAME_RATE
+            first_sample_age_seconds = frame_count / self.audio_frame_rate
         else:
             first_sample_age_seconds = time_info.currentTime - time_info.inputBufferAdcTime
         
