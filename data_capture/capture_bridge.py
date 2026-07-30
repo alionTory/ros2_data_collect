@@ -13,13 +13,14 @@ import threading
 import sounddevice as sd
 
 class CaptureWindow:
-    """한 소스가 실제로 데이터를 낸 시간 구간을 기록.
+    """한 소스가 실제로 낸 표본 수와, 데이터를 낸 시간 구간을 기록.
 
     소스마다 준비 시간이 달라(오디오 장치 열기, 카메라 워밍업) 시작 시각이 다르다. 
     전역 시작 시각으로 Hz를 계산하면 늦게 시작한 소스의 시간이 과대평가된다.
     """
 
     def __init__(self):
+        self.count = 0
         self.first_ns: int | None = None
         self.last_ns: int | None = None
 
@@ -27,9 +28,10 @@ class CaptureWindow:
         if self.first_ns is None:
             self.first_ns = timestamp_ns
         self.last_ns = timestamp_ns
+        self.count += 1
 
-    def snapshot(self) -> tuple[int | None, int | None]:
-        return self.first_ns, self.last_ns
+    def snapshot(self) -> tuple[int, int | None, int | None]:
+        return self.count, self.first_ns, self.last_ns
 
 class AtomicCounter:
     def __init__(self, initial_value):
