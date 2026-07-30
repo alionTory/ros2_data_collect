@@ -58,11 +58,12 @@ class FrameSender:
     """
     
     def __init__(self):
-        self.queue: queue.Queue[tuple[int, int, int, bytes]] = queue.Queue(maxsize=FrameSender.QUEUE_MAX)
+        self.queue: queue.Queue[tuple[int, int, bytes]] = queue.Queue(maxsize=FrameSender.QUEUE_MAX)
         """
-        (payload_type: int, timestamp_ns: int, seq: int, payload: bytes) 튜플을 저장하는 큐
+        (payload_type: int, seq: int, payload: bytes) 튜플을 저장하는 큐
         """
 
+        self.next_seq = {protocol.TYPE_VIDEO_JPEG: 0, protocol.TYPE_AUDIO_PCM: 0}
         self.send_success = {protocol.TYPE_VIDEO_JPEG: 0, protocol.TYPE_AUDIO_PCM: 0}
         self.send_error = None
 
@@ -91,7 +92,7 @@ class FrameSender:
     def send_success_count(self, payload_type):
         return self.send_success[payload_type]
 
-    def put_video(self, timestamp_ns: int, seq: int, jpeg: bytes):
+    def put_video(self, timestamp_ns: int, jpeg: bytes):
         """
         큐에 비디오 데이터를 넣어 나중에 전송할 수 있도록 한다.
         
@@ -101,38 +102,48 @@ class FrameSender:
             self.video_overflow += 1
         else:
             try:
-                self.queue.put_nowait((protocol.TYPE_VIDEO_JPEG, timestamp_ns, seq, jpeg))
+                self.queue.put_nowait((protocol.TYPE_VIDEO_JPEG, timestamp_ns, jpeg))
                 self.video_in_queue_count.increase()
             except queue.Full:
                 self.video_overflow += 1
 
     
-    def put_audio(self, timestamp_ns: int, seq: int, payload: bytes):
+    def put_audio(self, timestamp_ns: int, payload: bytes):
         """
         큐에 오디오 데이터를 넣어 나중에 전송할 수 있도록 한다.
         
         큐에 자리가 없으면 인수로 주어진 데이터를 버린다.
         """
         try:
-            self.queue.put_nowait((protocol.TYPE_AUDIO_PCM, timestamp_ns, seq, payload))
+            self.queue.put_nowait((protocol.TYPE_AUDIO_PCM, timestamp_ns, payload))
         except queue.Full:
             self.audio_overflow += 1
     
     def _send_loop(self):
         while self.running:
             try:
-                payload_type, timestamp_ns, seq, payload = self.queue.get(timeout=0.2)
+                payload_type, timestamp_ns, payload = self.queue.get(timeout=0.2)
                 if payload_type == protocol.TYPE_VIDEO_JPEG:
                     self.video_in_queue_count.decrease()
                 try:
+                    seq = self.next_seq[payload_type]
                     protocol.send_frame(self.sock, payload_type, timestamp_ns, seq, payload)
                     self.send_success[payload_type] += 1
+                    self.next_seq[payload_type] += 1
                 except OSError as e:
                     self.running = False
                     self.send_error = e
             except queue.Empty:
                 pass
                 
+    def drain(self, timeout: float = 2.0):
+        """프로세스 종료 직전, 큐에 남은 데이터를 마저 보내는 용도."""
+        deadline = time.monotonic() + timeout
+        while self.thread.is_alive() and not self.queue.empty():
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.02)
+        self.running = False
             
 
 class VideoCapturer:
@@ -141,7 +152,6 @@ class VideoCapturer:
     FRAME_HEIGHT = 480
     def __init__(self, frame_sender: FrameSender):
         self.frame_sender = frame_sender
-        self.next_seq = 0
         self.capture_fail_count = 0
         self.consecutive_capture_fail_count = 0
         self.capture_window = CaptureWindow()
@@ -170,10 +180,8 @@ class VideoCapturer:
     def _start_capture(self):
         while self.running:
             capture_success, image_raw = self.cap.read()
-            seq = self.next_seq
-            self.next_seq += 1
             if capture_success:
-                self._put_jpeg_to_frame_sender(image_raw, seq)
+                self._put_jpeg_to_frame_sender(image_raw)
             else:
                 self._process_capture_failure()
     
@@ -184,7 +192,7 @@ class VideoCapturer:
             raise RuntimeError(f"카메라 프레임 캡처 {self.consecutive_capture_fail_count}번 연속 실패")
         time.sleep(0.01)
 
-    def _put_jpeg_to_frame_sender(self, image_raw, seq):
+    def _put_jpeg_to_frame_sender(self, image_raw):
         """
         image_raw를 jpeg로 인코딩한 뒤 self.frame_sender에 넣음.
         """
@@ -194,7 +202,7 @@ class VideoCapturer:
         # IMWRITE_JPEG_QUALITY는 jpeg의 품질을 설정함. 0~100 사이 값.
         encoding_success, jpg = cv2.imencode('.jpg', image_raw, [cv2.IMWRITE_JPEG_QUALITY, 85])
         assert encoding_success, "JPEG 인코딩이 성공해야 함"
-        self.frame_sender.put_video(timestamp, seq, jpg.tobytes())
+        self.frame_sender.put_video(timestamp, jpg.tobytes())
 
 class AudioCapturer:
     # 16000 / 512 = 31.25 이므로, 31.25Hz로 메시지 전송.
@@ -213,8 +221,6 @@ class AudioCapturer:
         """
         self.adc_time_invalid_count = 0
 
-        self.next_seq = 0
-        
         self.capture_window = CaptureWindow()
         
     
@@ -242,15 +248,13 @@ class AudioCapturer:
         # time_info.currentTime: 콜백이 호출된 시각
         # frames: indata 내의 오디오 프레임 개수
         # status: indata 생성 과정에서 에러가 발생했는지 여부를 나타내는 비트열. 오디오 버퍼 오버플로우 등. 에러가 없으면 00000 값.
-        seq = self.next_seq
-        self.next_seq += 1
         if status:
             self.error_status_count += 1
         timestamp_ns = self._first_sample_capture_time_ns(time_info, frames)
         self.capture_window.mark(timestamp_ns)
         pcm = indata.copy().tobytes()  # 버퍼가 재사용되므로 copy 필수
         payload = protocol.pack_audio(self.audio_frame_rate, AudioCapturer.CHANNELS, pcm)
-        self.message_sender.put_audio(timestamp_ns, seq, payload)
+        self.message_sender.put_audio(timestamp_ns, payload)
         
     def _first_sample_capture_time_ns(self, time_info, frame_count):
         """청크 첫 샘플의 취득 시각 time_info.inputBufferTime을 현재 벽시계 기준으로 환산."""
@@ -406,6 +410,7 @@ def main():
             except KeyboardInterrupt:
                 print("종료 중...")
             finally:
+                frame_sender.drain()
                 _print_summary(frame_sender, video_capturer, audio_capturer,
                                (time.time_ns() - start_ns) / 1e9)
             
