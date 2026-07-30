@@ -19,11 +19,11 @@ class AtomicCounter:
     
     def increase(self):
         with self._lock:
-            self.value += 1
+            self._value += 1
     
     def decrease(self):
         with self._lock:
-            self.value -= 1
+            self._value -= 1
 
     @property
     def value(self):
@@ -245,25 +245,145 @@ class AudioCapturer:
         return now_ns - int(first_sample_age_seconds * 1e9)
 
 
-            
 
+# === 리포트용 코드 ===
+
+_ALERT_FIELDS = (
+    # (스냅샷 키, 표시 이름) — 지난 주기보다 늘었으면 경고로 출력한다
+    ('video_overflow', '영상버림'),
+    ('audio_overflow', '오디오넘침'),
+    ('capture_fail',   '캡처실패'),
+    ('audio_status',   'status'),
+    ('adc_invalid',    'ADC무효'),
+)
+
+_LIVENESS_FIELDS = (
+    ('sender_alive', '송신'),
+    ('video_alive',  '영상캡처'),
+    ('audio_alive',  '오디오스트림'),
+)
+
+
+def _snapshot(frame_sender: FrameSender,
+              video_capturer: VideoCapturer,
+              audio_capturer: AudioCapturer) -> dict:
+    """모든 계수기를 한 시점에 함께 읽는다.
+
+    필드를 따로 읽으면 그 사이에 값이 바뀌어 '전송 수 > 캡처 수' 같은
+    모순된 줄이 나온다. 계수기가 세 스레드에서 갱신되므로 실제로 발생한다.
+    """
+    return {
+        'video_captured': video_capturer.next_seq,
+        'audio_captured': audio_capturer.next_seq,
+        'video_sent':     frame_sender.send_success_count(protocol.TYPE_VIDEO_JPEG),
+        'audio_sent':     frame_sender.send_success_count(protocol.TYPE_AUDIO_PCM),
+        'video_overflow': frame_sender.video_overflow,
+        'audio_overflow': frame_sender.audio_overflow,
+        'capture_fail':   video_capturer.capture_fail_count,
+        'audio_status':   audio_capturer.error_status_count,
+        'adc_invalid':    audio_capturer.adc_time_invalid_count,
+        'queue_size':     frame_sender.queue.qsize(),
+        'video_in_queue': frame_sender.video_in_queue_count.value,
+        'sender_alive':   frame_sender.thread.is_alive(),
+        'video_alive':    video_capturer.thread.is_alive(),
+        'audio_alive':    audio_capturer.audio_input_stream.active,
+    }
+
+
+def _report_loop(frame_sender: FrameSender,
+                 video_capturer: VideoCapturer,
+                 audio_capturer: AudioCapturer,
+                 interval_sec: float = 1.0):
+    """주기적으로 전송률과 이상 징후를 출력한다. 데이터 경로에는 개입하지 않는다."""
+    start_ns = time.time_ns()
+    previous = _snapshot(frame_sender, video_capturer, audio_capturer)
+    print('수집 시작. Ctrl+C로 종료.', flush=True)
+
+    while True:
+        time.sleep(interval_sec)
+        current = _snapshot(frame_sender, video_capturer, audio_capturer)
+        elapsed_sec = (time.time_ns() - start_ns) / 1e9
+
+        video_hz = (current['video_sent'] - previous['video_sent']) / interval_sec
+        audio_hz = (current['audio_sent'] - previous['audio_sent']) / interval_sec
+
+        line = (f"[{elapsed_sec:6.1f}s] "
+                f"영상 {video_hz:5.1f}/s  오디오 {audio_hz:5.1f}/s  "
+                f"큐 {current['queue_size']:3d}/{FrameSender.QUEUE_MAX}"
+                f"(영상 {current['video_in_queue']:2d}/{FrameSender.VIDEO_IN_QUEUE_MAX})")
+
+        alerts = [f"{label} +{current[key] - previous[key]}(누적 {current[key]})"
+                  for key, label in _ALERT_FIELDS
+                  if current[key] != previous[key]]
+        if alerts:
+            line += '  [!] ' + ', '.join(alerts)
+
+        stopped = [label for key, label in _LIVENESS_FIELDS if not current[key]]
+        if stopped:
+            line += f"  [XX] 정지: {', '.join(stopped)}"
+            if frame_sender.send_error is not None:
+                line += f" / 송신 오류 {frame_sender.send_error!r}"
+
+        print(line, flush=True)
+        previous = current
+
+
+def _print_summary(frame_sender: FrameSender,
+                   video_capturer: VideoCapturer,
+                   audio_capturer: AudioCapturer,
+                   elapsed_sec: float):
+    """종료 시 누적 통계. README에 그대로 옮길 수 있는 형태로 출력한다."""
+    final = _snapshot(frame_sender, video_capturer, audio_capturer)
+    elapsed_sec = max(elapsed_sec, 1e-9)
+
+    print(f'\n=== 수집 요약 ({elapsed_sec:.1f}초) ===')
+    for label, captured_key, sent_key in (
+            ('영상  ', 'video_captured', 'video_sent'),
+            ('오디오', 'audio_captured', 'audio_sent')):
+        captured, sent = final[captured_key], final[sent_key]
+        lost = captured - sent
+        loss_percent = lost / captured * 100 if captured else 0.0
+        print(f'{label}: 캡처 {captured}, 전송 {sent}, '
+              f'유실 {lost}({loss_percent:.2f}%), 평균 {sent / elapsed_sec:.2f}Hz')
+
+    for key, label in _ALERT_FIELDS:
+        print(f'  {label}: {final[key]}')
+    if frame_sender.send_error is not None:
+        print(f'  송신 오류: {frame_sender.send_error!r}')
+
+
+
+# === 메인 ===
+
+def find_input_device(name_substring: str, hostapi_substring: str | None = None) -> int:
+    """이름(및 호스트 API)으로 입력 장치 번호를 찾는다. 번호는 재부팅·재연결 시 바뀐다."""
+    for index, device in enumerate(sd.query_devices()):
+        if device['max_input_channels'] >= 1 \
+        and name_substring.lower() in device['name'].lower():
+            api = sd.query_hostapis(device['hostapi'])['name']
+            result = None
+            if hostapi_substring is None:
+                result = index
+            elif hostapi_substring.lower() in api.lower():
+                result = index
+            if result is not None:
+                print(f"입력 장치 발견됨: {index:3d}  {api:12s}  {device['name']}")
+                return result
+    raise RuntimeError(f"입력 장치를 찾지 못함: {name_substring!r} / {hostapi_substring!r}")
 
 def main():
     with FrameSender() as frame_sender:
-        with AudioCapturer(frame_sender), VideoCapturer(frame_sender):
+        audio_capturer = AudioCapturer(frame_sender, device=find_input_device("buds", "WASAPI"))
+        video_capturer = VideoCapturer(frame_sender)
+        with audio_capturer, video_capturer:
+            start_ns = time.time_ns()
             try:
-                _report_loop(frame_sender)
+                _report_loop(frame_sender, video_capturer, audio_capturer)
             except KeyboardInterrupt:
                 print("종료 중...")
+            finally:
+                _print_summary(frame_sender, video_capturer, audio_capturer,
+                               (time.time_ns() - start_ns) / 1e9)
             
-
-def _report_loop(frame_sender: FrameSender):
-    prev = dict(frame_sender.sent)
-    while True:
-        time.sleep(1.0)
-        video_success_count = frame_sender.send_success_count(protocol.TYPE_VIDEO_JPEG)
-        audio_success_count = frame_sender.send_success_count(protocol.TYPE_AUDIO_PCM)
-        print(f"영상 전송률: {video_success_count - prev[protocol.TYPE_VIDEO_JPEG]:3d}/s "
-              f"오디오 전송률: {audio_success_count - prev[protocol.TYPE_AUDIO_PCM]:3d}/s "
-        )
-        prev[protocol.TYPE_VIDEO_JPEG], prev[protocol.TYPE_AUDIO_PCM] = video_success_count, audio_success_count
+if __name__ == "__main__":
+    main()
