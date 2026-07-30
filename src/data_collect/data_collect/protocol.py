@@ -43,6 +43,7 @@ MAX_PAYLOAD = 1 << 20  # 1MB
 
 AUDIO_BYTES_PER_SAMPLE = 2
 AUDIO_BYTES_PER_SAMPLE_TYPENAME = 'int16'
+AUDIO_BYTES_PER_SAMPLE_CODE = 'h'
 
 
 class ProtocolError(Exception):
@@ -84,10 +85,13 @@ def parse_audio(payload: bytes):
     
     PCM 길이가 헤더 정보와 다르면 ValueError 예외를 던짐.
     """
-    frame_rate, channels, frame_count = AUDIO_SUBHEADER.unpack_from(payload)
+    try:
+        frame_rate, channels, frame_count = AUDIO_SUBHEADER.unpack_from(payload)
+    except struct.error:
+        raise ProtocolError(f"payload 길이 {len(payload)}가 헤더 길이 {len(AUDIO_SUBHEADER.size)}보다 짧음.")
     pcm = payload[AUDIO_SUBHEADER.size:]
     if len(pcm) != frame_count * channels * AUDIO_BYTES_PER_SAMPLE:
-        raise ValueError(f"PCM 길이 {len(pcm)}이 frame_count * channels * AUDIO_BYTES_PER_SAMLE 값 {frame_count * channels * AUDIO_BYTES_PER_SAMPLE}와 불일치.")
+        raise ProtocolError(f"PCM 길이 {len(pcm)}이 frame_count * channels * AUDIO_BYTES_PER_SAMLE 값 {frame_count * channels * AUDIO_BYTES_PER_SAMPLE}와 불일치.")
     return frame_rate, channels, frame_count, pcm
     
 
