@@ -66,7 +66,11 @@ class FrameSender:
         """
 
         self.next_seq = {protocol.TYPE_VIDEO_JPEG: 0, protocol.TYPE_AUDIO_PCM: 0}
-        self.send_success = {protocol.TYPE_VIDEO_JPEG: 0, protocol.TYPE_AUDIO_PCM: 0}
+        """
+        다음 두 가지 의미를 가짐.
+            1. 다음에 전송할 프레임의 seq값
+            2. 전송에 성공한 프레임 수.
+        """
         self.send_error = None
 
         self.video_in_queue_count = AtomicCounter(0)
@@ -92,7 +96,7 @@ class FrameSender:
         self.sock.close()
     
     def send_success_count(self, payload_type):
-        return self.send_success[payload_type]
+        return self.next_seq[payload_type]
 
     def put_video(self, timestamp_ns: int, jpeg: bytes):
         """
@@ -130,7 +134,6 @@ class FrameSender:
                 try:
                     seq = self.next_seq[payload_type]
                     protocol.send_frame(self.sock, payload_type, timestamp_ns, seq, payload)
-                    self.send_success[payload_type] += 1
                     self.next_seq[payload_type] += 1
                 except OSError as e:
                     self.running = False
