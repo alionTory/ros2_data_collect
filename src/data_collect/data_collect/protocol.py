@@ -24,7 +24,7 @@ AUDIO_SUBHEADER = struct.Struct('>IHI')
     frame_rate (I): unsigned int32
     channels (H): unsigned int16
     frame_count (I): unsigned int32
-    
+
 주의: 오디오 페이로드 PCM은 리틀 엔디안 int16임.
 """
 
@@ -42,6 +42,7 @@ MAX_PAYLOAD = 1 << 20  # 1MB
 """
 
 AUDIO_BYTES_PER_SAMPLE = 2
+AUDIO_BYTES_PER_SAMPLE_TYPENAME = 'int16'
 
 
 class ProtocolError(Exception):
