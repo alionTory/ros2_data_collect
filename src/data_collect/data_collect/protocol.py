@@ -87,8 +87,8 @@ def parse_audio(payload: bytes):
     """
     try:
         frame_rate, channels, frame_count = AUDIO_SUBHEADER.unpack_from(payload)
-    except struct.error:
-        raise ProtocolError(f"payload 길이 {len(payload)}가 헤더 길이 {len(AUDIO_SUBHEADER.size)}보다 짧음.")
+    except struct.error as ex:
+        raise ProtocolError(f"payload 길이 {len(payload)}가 헤더 길이 {AUDIO_SUBHEADER.size}보다 짧음.") from ex
     pcm = payload[AUDIO_SUBHEADER.size:]
     if len(pcm) != frame_count * channels * AUDIO_BYTES_PER_SAMPLE:
         raise ProtocolError(f"PCM 길이 {len(pcm)}이 frame_count * channels * AUDIO_BYTES_PER_SAMLE 값 {frame_count * channels * AUDIO_BYTES_PER_SAMPLE}와 불일치.")

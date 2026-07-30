@@ -13,7 +13,6 @@ import errno
 import time
 import array
 import threading
-import struct
 import sys
 
 SOCKET_ACCEPT_RETRYABLE = {errno.ECONNABORTED, errno.EPROTO, errno.EPERM, errno.EMFILE, errno.ENFILE, errno.ENOBUFS, errno.ENOMEM}
@@ -41,6 +40,8 @@ class FrameQueue:
             queue = self._video_queue
         elif frame.message_type == protocol.TYPE_AUDIO_PCM:
             queue = self._audio_queue
+        else:
+            assert False, "frame의 메시지 타입이 잘못됨."
 
         if len(queue) == self._queue_size[frame.message_type]:
             self.overflow_count[frame.message_type] += 1
@@ -93,6 +94,8 @@ class HostBridge(Node):
         """
         연결이 끊긴 후 재접속한 횟수.
         """
+
+        self.server_socket = None
 
         self.image_publisher = self.create_publisher(CompressedImage, topics.CAMERA_IMAGE, qos.CAMERA_QOS)
         self.audio_publisher = self.create_publisher(AudioChunk, topics.AUDIO_CHUNK, qos.AUDIO_QOS)
@@ -205,10 +208,15 @@ class HostBridge(Node):
             pass
     
     def _frame_to_message(self, frame: protocol.Frame):
+        """
+        Frame의 페이로드를 검증하여 메시지로 변환.
+        
+        검증 실패 시 None 반환.
+        """
         if frame.message_type == protocol.TYPE_VIDEO_JPEG:
-            self._image_to_message(frame)
+            return self._image_to_message(frame)
         elif frame.message_type == protocol.TYPE_AUDIO_PCM:
-            self._image_to_message(frame)
+            return self._audio_to_message(frame)
         else:
             assert False
             
@@ -232,7 +240,7 @@ class HostBridge(Node):
         """
         jpeg 인수가 올바른 JPEG 바이트열인지를 검사해, 올바르다고 판단되면 True를 리턴. 
         
-        검증 실패 시, self.invalid_jpeg를 1 증가시킨다.
+        검증 실패 시, self.invalid_format를 1 증가시킨다.
 
         앞의 두 바이트와 끝의 두 바이트를 통해 검증한다.
         TCP 프레이밍이 잘못 되었음을 감지하는데 사용 가능.
@@ -274,10 +282,10 @@ class HostBridge(Node):
         """노드 상태를 출력하는 콜백."""
         video, audio = protocol.TYPE_VIDEO_JPEG, protocol.TYPE_AUDIO_PCM
         self.get_logger().info(
-            f"영상 발행={self.published[video]} 유실={self.dropped_frame_count[video]} JPEG오류={self.invalid_format[video]}  | "
-            f"오디오 발행={self.published[audio]} 유실={self.dropped_frame_count[audio]} 청크오류={self.invalid_format[audio]}  | "
-            f"큐 상태: | " \
-            + self.queue.get_status() + \
+            f"영상 발행={self.published[video]} 유실={self.dropped_frame_count[video]} JPEG오류={self.invalid_format[video]}\n"
+            f"오디오 발행={self.published[audio]} 유실={self.dropped_frame_count[audio]} 청크오류={self.invalid_format[audio]}\n"
+            f"큐 상태:\n"
+            f"{self.queue.get_status()}\n"
             f"재접속={self.reconnect_count} 미지원타입={self.unknown_frame_type_count}"
         )
     
