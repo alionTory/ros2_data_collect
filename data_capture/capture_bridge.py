@@ -12,6 +12,23 @@ import queue
 import threading
 import sounddevice as sd
 
+class AtomicCounter:
+    def __init__(self, initial_value):
+        self._lock = threading.Lock()
+        self._value = initial_value
+    
+    def increase(self):
+        with self._lock:
+            self.value += 1
+    
+    def decrease(self):
+        with self._lock:
+            self.value -= 1
+
+    @property
+    def value(self):
+        return self._value
+
 class FrameSender:
     QUEUE_MAX = 400
     VIDEO_IN_QUEUE_MAX = 60
@@ -22,15 +39,15 @@ class FrameSender:
     """
     
     def __init__(self):
-        self.queue: queue.Queue[(int, int, int, bytes)] = queue.Queue(maxsize=FrameSender.QUEUE_MAX)
+        self.queue: queue.Queue[tuple[int, int, int, bytes]] = queue.Queue(maxsize=FrameSender.QUEUE_MAX)
         """
         (payload_type: int, timestamp_ns: int, seq: int, payload: bytes) 튜플을 저장하는 큐
         """
 
         self.send_success = {protocol.TYPE_VIDEO_JPEG: 0, protocol.TYPE_AUDIO_PCM: 0}
-        self.send_failed = {protocol.TYPE_VIDEO_JPEG: 0, protocol.TYPE_AUDIO_PCM: 0}
+        self.send_error = None
 
-        self.video_in_queue_count = 0
+        self.video_in_queue_count = AtomicCounter(0)
         self.video_overflow = 0
 
         self.audio_overflow = 0
@@ -61,12 +78,12 @@ class FrameSender:
         
         큐에 자리가 없으면 인수로 주어진 데이터를 버린다.
         """
-        if self.video_in_queue_count >= FrameSender.VIDEO_IN_QUEUE_MAX:
+        if self.video_in_queue_count.value >= FrameSender.VIDEO_IN_QUEUE_MAX:
             self.video_overflow += 1
         else:
             try:
                 self.queue.put_nowait((protocol.TYPE_VIDEO_JPEG, timestamp_ns, seq, jpeg))
-                self.video_in_queue_count += 1
+                self.video_in_queue_count.increase()
             except queue.Full:
                 self.video_overflow += 1
 
@@ -84,14 +101,18 @@ class FrameSender:
     
     def _send_loop(self):
         while self.running:
-            payload_type, timestamp_ns, seq, payload = self.queue.get(timeout=0.2)
-            if payload_type == protocol.TYPE_VIDEO_JPEG:
-                self.video_in_queue_count -= 1
             try:
-                protocol.send_frame(self.sock, payload_type, timestamp_ns, seq, payload)
-                self.send_success[payload_type] += 1
-            except Exception:
-                self.send_failed[payload_type] += 1
+                payload_type, timestamp_ns, seq, payload = self.queue.get(timeout=0.2)
+                if payload_type == protocol.TYPE_VIDEO_JPEG:
+                    self.video_in_queue_count.decrease()
+                try:
+                    protocol.send_frame(self.sock, payload_type, timestamp_ns, seq, payload)
+                    self.send_success[payload_type] += 1
+                except OSError as e:
+                    self.running = False
+                    self.send_error = e
+            except queue.Empty:
+                pass
                 
             
 
@@ -109,8 +130,7 @@ class VideoCapturer:
     def __enter__(self):
         self.cap = cv2.VideoCapture(0)
         if not self.cap.isOpened():
-            print("카메라를 사용할 수 없습니다.")
-            exit()
+            raise RuntimeError("카메라를 사용할 수 없습니다.")
         
         self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, VideoCapturer.FRAME_WIDTH)
@@ -184,8 +204,8 @@ class AudioCapturer:
             blocksize=AudioCapturer.AUDIO_FRAME_COUNT_PER_CHUNK,
             callback=self._audio_callback,
         )
+        self.audio_frame_rate = int(self.audio_input_stream.samplerate)
         self.audio_input_stream.start()
-        self.audio_frame_rate = self.audio_input_stream.samplerate 
         print(f"오디오 설정됨. 장치: {self.audio_input_stream.device}")
         print(f"오디오 프레임 레이트: {self.audio_frame_rate}, 지연: {self.audio_input_stream.latency:.4f}s")
         return self
