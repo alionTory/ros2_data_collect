@@ -8,14 +8,25 @@ from typing import NamedTuple
 DEFAULT_PORT = 5555
 
 HEADER = struct.Struct('>IBqq')
-'''
+"""
 헤더
-> : 빅 엔디안, 패딩 없음.
-I : payload_len unsigned 4 byte
-B : message_type unsigned 1 byte
-q : timestamp_ns signed 8 byte
-q : seq (메시지 순서 번호) signed 8 byte
-'''
+    빅 엔디안, 패딩 없음. (>)
+    payload_len (I): unsigned 4 byte
+    message_type (B): unsigned 1 byte
+    timestamp_ns (q): signed 8 byte
+    seq (메시지 순서 번호) (q): signed 8 byte
+"""
+
+AUDIO_SUBHEADER = struct.Struct('>IHI')
+"""
+오디오용 서브헤더
+    빅 엔디안, 패딩 없음.
+    frame_rate (I): unsigned int32
+    channels (H): unsigned int16
+    frame_count (I): unsigned int32
+    
+주의: 오디오 페이로드 PCM은 리틀 엔디안 int16임.
+"""
 
 TYPE_HELLO = 0x00
 TYPE_VIDEO_JPEG = 0x01
@@ -29,6 +40,9 @@ MAX_PAYLOAD = 1 << 20  # 1MB
 페이로드 바이트 길이 상한.
 프레이밍이 깨지면 대용량의 쓰레기값을 읽다 프로세스가 크래시될 수 있음. 이를 방지하기 위한 용도.
 """
+
+AUDIO_BYTES_PER_SAMPLE = 2
+
 
 class ProtocolError(Exception):
     """프레임 구조가 규약에 맞지 않음"""
@@ -57,6 +71,24 @@ def parse_frame(buffer: bytes) -> Frame:
         seq=seq,
         payload=payload,
     )
+
+def pack_audio(frame_rate: int, channels: int, pcm: bytes) -> bytes:
+    assert len(pcm) % (channels * AUDIO_BYTES_PER_SAMPLE) == 0
+    frame_count = len(pcm) // (channels * AUDIO_BYTES_PER_SAMPLE)
+    return AUDIO_SUBHEADER.pack(frame_rate, channels, frame_count) + pcm
+
+def parse_audio(payload: bytes):
+    """
+    바이트 시퀀스를 AUDIO_SUBHEADER와 pcm으로 해석하고, PCM 길이가 헤더 정보와 일치하는지 검증.
+    
+    PCM 길이가 헤더 정보와 다르면 ValueError 예외를 던짐.
+    """
+    frame_rate, channels, frame_count = AUDIO_SUBHEADER.unpack_from(payload)
+    pcm = payload[AUDIO_SUBHEADER.size:]
+    if len(pcm) != frame_count * channels * AUDIO_BYTES_PER_SAMPLE:
+        raise ValueError(f"PCM 길이 {len(pcm)}이 frame_count * channels * AUDIO_BYTES_PER_SAMLE 값 {frame_count * channels * AUDIO_BYTES_PER_SAMPLE}와 불일치.")
+    return frame_rate, channels, frame_count, pcm
+    
 
 def recv_exact(sock: socket.socket, n: int) -> bytes:
     """n 바이트가 모일 때까지 socket에서 값을 읽음."""
