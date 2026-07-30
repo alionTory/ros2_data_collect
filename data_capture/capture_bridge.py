@@ -307,8 +307,8 @@ def _snapshot(frame_sender: FrameSender,
     모순된 줄이 나온다. 계수기가 세 스레드에서 갱신되므로 실제로 발생한다.
     """
     return {
-        'video_captured': video_capturer.next_seq,
-        'audio_captured': audio_capturer.next_seq,
+        'video_window':   video_capturer.capture_window.snapshot(),
+        'audio_window':   audio_capturer.capture_window.snapshot(),
         'video_sent':     frame_sender.send_success_count(protocol.TYPE_VIDEO_JPEG),
         'audio_sent':     frame_sender.send_success_count(protocol.TYPE_AUDIO_PCM),
         'video_overflow': frame_sender.video_overflow,
@@ -323,25 +323,26 @@ def _snapshot(frame_sender: FrameSender,
         'audio_alive':    audio_capturer.audio_input_stream.active,
     }
 
-
 def _report_loop(frame_sender: FrameSender,
                  video_capturer: VideoCapturer,
                  audio_capturer: AudioCapturer,
                  interval_sec: float = 1.0):
     """주기적으로 전송률과 이상 징후를 출력한다. 데이터 경로에는 개입하지 않는다."""
-    start_ns = time.time_ns()
     previous = _snapshot(frame_sender, video_capturer, audio_capturer)
+    previous_ns = start_ns = time.monotonic_ns()
     print('수집 시작. Ctrl+C로 종료.', flush=True)
 
     while True:
         time.sleep(interval_sec)
         current = _snapshot(frame_sender, video_capturer, audio_capturer)
-        elapsed_sec = (time.time_ns() - start_ns) / 1e9
+        now_ns = time.monotonic_ns()
 
-        video_hz = (current['video_sent'] - previous['video_sent']) / interval_sec
-        audio_hz = (current['audio_sent'] - previous['audio_sent']) / interval_sec
+        # sleep은 요청보다 길게 자므로 실제 경과로 나눈다.
+        delta_sec = max((now_ns - previous_ns) / 1e9, 1e-9)
+        video_hz = (current['video_sent'] - previous['video_sent']) / delta_sec
+        audio_hz = (current['audio_sent'] - previous['audio_sent']) / delta_sec
 
-        line = (f"[{elapsed_sec:6.1f}s] "
+        line = (f"[{(now_ns - start_ns) / 1e9:6.1f}s] "
                 f"영상 {video_hz:5.1f}/s  오디오 {audio_hz:5.1f}/s  "
                 f"큐 {current['queue_size']:3d}/{FrameSender.QUEUE_MAX}"
                 f"(영상 {current['video_in_queue']:2d}/{FrameSender.VIDEO_IN_QUEUE_MAX})")
@@ -359,33 +360,40 @@ def _report_loop(frame_sender: FrameSender,
                 line += f" / 송신 오류 {frame_sender.send_error!r}"
 
         print(line, flush=True)
-        previous = current
-
+        previous, previous_ns = current, now_ns
 
 def _print_summary(frame_sender: FrameSender,
                    video_capturer: VideoCapturer,
-                   audio_capturer: AudioCapturer,
-                   elapsed_sec: float):
-    """종료 시 누적 통계. README에 그대로 옮길 수 있는 형태로 출력한다."""
+                   audio_capturer: AudioCapturer):
+    """종료 시 누적 통계. drain() 이후에 호출해야 전송 수가 확정된다."""
     final = _snapshot(frame_sender, video_capturer, audio_capturer)
-    elapsed_sec = max(elapsed_sec, 1e-9)
 
-    print(f'\n=== 수집 요약 ({elapsed_sec:.1f}초) ===')
-    for label, captured_key, sent_key in (
-            ('영상  ', 'video_captured', 'video_sent'),
-            ('오디오', 'audio_captured', 'audio_sent')):
-        captured, sent = final[captured_key], final[sent_key]
+    print('\n=== 수집 요약 ===')
+    for label, prefix in (('영상  ', 'video'), ('오디오', 'audio')):
+        captured, first_ns, last_ns = final[f'{prefix}_window']
+        sent = final[f'{prefix}_sent']
         lost = captured - sent
         loss_percent = lost / captured * 100 if captured else 0.0
+
+        # 표본 N개 사이의 간격은 N-1개다. 소스마다 시작 시각이 다르므로
+        # 전역 경과 시간으로 나누면 늦게 시작한 소스가 과대평가된다.
+        if captured < 2 or first_ns is None or last_ns <= first_ns:
+            rate = '구간 측정 불가'
+        else:
+            span_sec = (last_ns - first_ns) / 1e9
+            rate = f'구간 {span_sec:.1f}초, 평균 {(captured - 1) / span_sec:.2f}Hz'
+
         print(f'{label}: 캡처 {captured}, 전송 {sent}, '
-              f'유실 {lost}({loss_percent:.2f}%), 평균 {sent / elapsed_sec:.2f}Hz')
+              f'유실 {lost}({loss_percent:.2f}%), {rate}')
+
+    video_first, audio_first = final['video_window'][1], final['audio_window'][1]
+    if video_first is not None and audio_first is not None:
+        print(f'시작 시각 차: 영상이 오디오보다 {(video_first - audio_first) / 1e9:+.1f}초')
 
     for key, label in _ALERT_FIELDS:
         print(f'  {label}: {final[key]}')
     if frame_sender.send_error is not None:
         print(f'  송신 오류: {frame_sender.send_error!r}')
-
-
 
 # === 메인 ===
 
@@ -405,6 +413,7 @@ def find_input_device(name_substring: str, hostapi_substring: str | None = None)
                 return result
     raise RuntimeError(f"입력 장치를 찾지 못함: {name_substring!r} / {hostapi_substring!r}")
 
+
 def main():
     with FrameSender() as frame_sender:
         audio_capturer = AudioCapturer(frame_sender, device=find_input_device("buds", "WASAPI"))
@@ -417,8 +426,7 @@ def main():
                 print("종료 중...")
             finally:
                 frame_sender.drain()
-                _print_summary(frame_sender, video_capturer, audio_capturer,
-                               (time.time_ns() - start_ns) / 1e9)
+                _print_summary(frame_sender, video_capturer, audio_capturer)
             
 if __name__ == "__main__":
     main()
