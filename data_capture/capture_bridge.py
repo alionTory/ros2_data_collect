@@ -144,6 +144,7 @@ class FrameSender:
                 break
             time.sleep(0.02)
         self.running = False
+        self.thread.join(timeout=1.0)
             
 
 class VideoCapturer:
