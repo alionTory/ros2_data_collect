@@ -150,7 +150,7 @@ class HostBridge(Node):
         self.queue.append(frame)  # 덱이 가득 찬 상태에서, append는 가장 오래된 값을 제거함.
     
     def _deque_and_send(self):
-        """queue에서 데이터를 꺼내, 이미지 디코딩 후 토픽에 발행하는 콜백"""
+        """queue에서 데이터를 꺼내, 이미지 검증 후 토픽에 발행하는 콜백"""
         try:
             frame = self.queue.popleft()
             message = self._image_to_message(frame)
@@ -162,9 +162,9 @@ class HostBridge(Node):
             
     def _image_to_message(self, frame: protocol.Frame):
         """
-        Frame의 페이로드를 디코딩하여, CompressedImage 메시지로 변환.
+        Frame의 페이로드를 검증하여, CompressedImage 메시지로 변환.
         
-        디코딩 실패 시, self.decode_failed를 1 증가시키고 None 반환.
+        검증 실패 시, self.invalid_jpeg를 1 증가시키고 None 반환.
         """
         message = None
         if self._validate_jpeg(frame.payload):
