@@ -45,3 +45,6 @@ Thumbs.db
 .env
 venv/
 env/
+
+# 수집 데이터
+sessions/
