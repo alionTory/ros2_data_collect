@@ -2,8 +2,12 @@
 
 박수 한 번이 두 스트림 모두에 뚜렷한 이벤트를 남긴다.
 
-    영상   손이 맞닿는 순간   연속 프레임 차분의 최대점
-    오디오 파열음             단시간 에너지의 급상승 지점
+    영상   손이 맞닿는 순간   연속 프레임 차분이 급격히 꺾이는 지점
+    오디오 파열음             단시간 에너지의 최대점
+
+영상에서 차분의 최대점을 쓰지 않는 이유는, 그것이 손이 가장 빠르게 움직이는 순간이지
+맞닿는 순간이 아니기 때문이다. 접촉하면 움직임이 멎으므로 하강이 가장 가파른 곳이
+접촉에 해당한다. --video-event peak 으로 옛 방식과 비교할 수 있다.
 
 두 이벤트의 시각 차이가 곧 동기화 오차다. 비교 대상은 각 메시지의 header.stamp이며,
 bag의 수신 시각이 아니다. 후자는 발행 지연을 포함하므로 측정하려는 값이 아니다.
@@ -141,8 +145,8 @@ def audio_energy(audios):
 
 # --- 이벤트 검출 -----------------------------------------------------------
 
-def find_events(times, values, threshold_ratio, refractory_sec):
-    """기준선 위로 크게 솟은 구간마다 최대점 하나를 이벤트로 고른다.
+def find_event_groups(times, values, threshold_ratio, refractory_sec):
+    """기준선 위로 크게 솟은 구간을 인덱스 묶음으로 반환한다.
 
     기준선은 중앙값을 쓴다. 평균은 박수 자체에 끌려 올라가 문턱이 높아진다.
     """
@@ -158,18 +162,54 @@ def find_events(times, values, threshold_ratio, refractory_sec):
     if len(above) == 0:
         return []
 
-    events = []
+    groups = []
     group = [above[0]]
     for index in above[1:]:
         # 같은 박수의 잔향이 끊겼다 이어져도 하나로 묶는다.
         if times[index] - times[group[-1]] <= refractory_sec:
             group.append(index)
         else:
-            events.append(group)
+            groups.append(group)
             group = [index]
-    events.append(group)
+    groups.append(group)
+    return groups
 
-    return [float(times[max(group, key=lambda i: values[i])]) for group in events]
+
+def peak_index(values, group):
+    """묶음 안에서 값이 가장 큰 지점."""
+    return max(group, key=lambda index: values[index])
+
+
+def stop_index(times, values, group, search_sec):
+    """움직임이 멎는 지점. 최대점 이후 하강이 가장 가파른 곳을 고른다.
+
+    프레임 차분의 최대점은 손이 가장 빠르게 움직이는 순간이지 맞닿는 순간이 아니다.
+    접촉하면 움직임이 급격히 멎으므로, 하강이 가장 가파른 프레임이 접촉에 해당한다.
+
+    문턱 아래로 내려가는 구간이 하강의 핵심이므로 묶음 밖까지 내다본다.
+    """
+    start = peak_index(values, group)
+    end = start
+    while end + 1 < len(times) and times[end + 1] - times[start] <= search_sec:
+        end += 1
+
+    best_index, best_drop = start, -np.inf
+    for index in range(start, end):
+        drop = values[index] - values[index + 1]
+        if drop > best_drop:
+            best_drop, best_index = drop, index
+
+    # values[i]는 프레임 i-1과 i 사이의 움직임이다. i에서 크고 i+1에서 작다면
+    # 접촉은 그 두 프레임 사이에 있으므로 중점을 취한다.
+    if best_index + 1 < len(times):
+        return float((times[best_index] + times[best_index + 1]) / 2)
+    return float(times[best_index])
+
+
+def event_times(times, values, groups, mode, search_sec):
+    if mode == 'peak':
+        return [float(times[peak_index(values, group)]) for group in groups]
+    return [stop_index(times, values, group, search_sec) for group in groups]
 
 
 def pair_events(video_events, audio_events, max_gap_sec):
@@ -189,7 +229,17 @@ def pair_events(video_events, audio_events, max_gap_sec):
 
 # --- 보고 -----------------------------------------------------------------
 
-def report(pairs, video_events, audio_events, video_interval_sec, output_csv):
+_MODE_NOTE = {
+    'peak': ('영상 이벤트를 프레임 차분의 최대점으로 잡았다. 이는 손이 가장 빠르게\n'
+             '움직이는 순간이지 맞닿는 순간이 아니므로, 평균이 음수 쪽으로 부풀려진다.\n'
+             '--video-event stop 과 비교해 이 편향의 크기를 가늠할 수 있다.'),
+    'stop': ('영상 이벤트를 움직임이 멎는 지점(최대점 이후 하강이 가장 가파른 곳)으로\n'
+             '잡았다. 접촉하면 움직임이 급격히 멎으므로 최대점보다 접촉에 가깝다.\n'
+             '--video-event peak 대비 평균이 0 쪽으로 이동해야 한다.'),
+}
+
+
+def report(pairs, video_events, audio_events, video_interval_sec, mode, output_csv):
     print(f'\n검출: 영상 {len(video_events)}회, 오디오 {len(audio_events)}회, '
           f'짝 지어진 것 {len(pairs)}회')
 
@@ -201,7 +251,7 @@ def report(pairs, video_events, audio_events, video_interval_sec, output_csv):
     stdev = statistics.stdev(deltas_ms)
     resolution_ms = video_interval_sec * 1000 / 2
 
-    print('\n=== 동기화 정확도 ===')
+    print(f'\n=== 동기화 정확도 (영상 검출: {mode}) ===')
     print(f'평균 오차   {mean:+.1f} ms   (양수 = 영상이 오디오보다 늦음)')
     print(f'표준편차     {stdev:.1f} ms')
     print(f'범위        {min(deltas_ms):+.1f} ~ {max(deltas_ms):+.1f} ms')
@@ -209,8 +259,7 @@ def report(pairs, video_events, audio_events, video_interval_sec, output_csv):
     print(f'영상 분해능  ±{resolution_ms:.0f} ms (프레임 간격 {video_interval_sec * 1000:.1f}ms의 절반)')
 
     print('\n평균은 계통 편향, 표준편차는 재현성을 나타낸다.')
-    print('영상 이벤트는 손이 맞닿기 직전(움직임이 가장 빠른 순간)에 검출되므로')
-    print('평균에는 1프레임 수준의 고정 편향이 섞인다. 표준편차가 더 신뢰할 만하다.')
+    print(_MODE_NOTE[mode])
 
     with open(output_csv, 'w', newline='') as file:
         writer = csv.writer(file)
@@ -228,8 +277,13 @@ def main():
                         help='기준선 위 최대치의 몇 배부터 이벤트로 볼지 (0~1)')
     parser.add_argument('--refractory', type=float, default=1.0,
                         help='한 박수로 묶을 시간 범위(초)')
-    parser.add_argument('--max-gap', type=float, default=0.3,
-                        help='영상·오디오 이벤트를 짝지을 최대 시간차(초)')
+    parser.add_argument('--max-gap', type=float, default=0.5,
+                        help='영상·오디오 이벤트를 짝지을 최대 시간차(초). '
+                             '넓히면 오검출이 먼 이벤트에 잘못 붙어 분산이 커진다')
+    parser.add_argument('--video-event', choices=('stop', 'peak'), default='stop',
+                        help='stop=움직임이 멎는 지점(접촉에 가까움), peak=차분 최대점')
+    parser.add_argument('--stop-search', type=float, default=0.3,
+                        help='stop 모드에서 최대점 이후 하강을 찾을 범위(초)')
     parser.add_argument('--csv', default='sync_accuracy.csv')
     arguments = parser.parse_args()
 
@@ -256,13 +310,22 @@ def main():
     video_times, video_values = video_motion(videos, decode)
     audio_times, audio_values = audio_energy(audios)
 
-    video_events = find_events(video_times, video_values,
-                               arguments.threshold, arguments.refractory)
-    audio_events = find_events(audio_times, audio_values,
-                               arguments.threshold, arguments.refractory)
+    video_groups = find_event_groups(video_times, video_values,
+                                     arguments.threshold, arguments.refractory)
+    audio_groups = find_event_groups(audio_times, audio_values,
+                                     arguments.threshold, arguments.refractory)
+
+    video_events = event_times(video_times, video_values, video_groups,
+                               arguments.video_event, arguments.stop_search)
+    # 오디오는 최대점을 그대로 쓴다. 파열음은 상승과 최대점의 간격이 수 ms라
+    # 영상 분해능 ±17ms에 비해 무시할 수 있고, 한 번에 한 가지만 바꿔야
+    # 차이를 그 하나에 귀속시킬 수 있다.
+    audio_events = event_times(audio_times, audio_values, audio_groups,
+                               'peak', arguments.stop_search)
 
     pairs = pair_events(video_events, audio_events, arguments.max_gap)
-    report(pairs, video_events, audio_events, video_interval, arguments.csv)
+    report(pairs, video_events, audio_events, video_interval,
+           arguments.video_event, arguments.csv)
 
 
 if __name__ == '__main__':
