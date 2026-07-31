@@ -212,14 +212,15 @@ class VideoCapturer:
 
 class AudioCapturer:
     # 16000 / 512 = 31.25 이므로, 31.25Hz로 메시지 전송.
-    AUDIO_FRAME_RATE = 16000
     AUDIO_FRAME_COUNT_PER_CHUNK = 512
 
     CHANNELS = 1
     
-    def __init__(self, frame_sender: FrameSender, device=None):
+    def __init__(self, frame_sender: FrameSender, device=None, sample_rate=None):
         self.message_sender = frame_sender
         self.device = device
+        self.requested_sample_rate = sample_rate
+        """None이면 장치 기본 레이트를 쓴다."""
 
         self.error_status_count = 0
         """
@@ -231,9 +232,12 @@ class AudioCapturer:
         
     
     def __enter__(self):
+        sample_rate = self.requested_sample_rate
+        if sample_rate is None:
+            sample_rate = int(sd.query_devices(self.device)['default_samplerate'])
         self.audio_input_stream = sd.InputStream(
             device=self.device,
-            samplerate=AudioCapturer.AUDIO_FRAME_RATE,
+            samplerate=sample_rate,
             channels=AudioCapturer.CHANNELS,
             dtype=protocol.AUDIO_BYTES_PER_SAMPLE_TYPENAME,
             blocksize=AudioCapturer.AUDIO_FRAME_COUNT_PER_CHUNK,
@@ -416,7 +420,7 @@ def find_input_device(name_substring: str, hostapi_substring: str | None = None)
 
 def main():
     with FrameSender() as frame_sender:
-        audio_capturer = AudioCapturer(frame_sender, device=find_input_device("buds", "WASAPI"))
+        audio_capturer = AudioCapturer(frame_sender, device=find_input_device("인텔", "WASAPI"))
         video_capturer = VideoCapturer(frame_sender)
         with audio_capturer, video_capturer:
             start_ns = time.time_ns()
