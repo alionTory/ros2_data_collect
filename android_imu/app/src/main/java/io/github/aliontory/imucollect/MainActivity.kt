@@ -1,6 +1,7 @@
 package io.github.aliontory.imucollect
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -28,6 +29,8 @@ import kotlinx.coroutines.withContext
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+
+private const val TAG = "MainActivity"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -85,12 +88,14 @@ fun MenuPreview() {
 
 suspend fun sendUdpMessage(address: String, port: Int, text: String) {
     withContext(Dispatchers.IO) {
+        Log.i(TAG, "UDP 전송 시작. 주소 $address, 포트 $port.")
         DatagramSocket().use { socket ->
             val data = text.toByteArray()
             val inetAddress = InetAddress.getByName(address)
             val packet = DatagramPacket(data, data.size, inetAddress, port)
             socket.send(packet)
         }
+        Log.i(TAG, "UDP 전송 완료.")
     }
 
 }
