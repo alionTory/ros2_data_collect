@@ -91,9 +91,9 @@ DMS(운전자 모니터링) 환경은 RGB-D·IR 카메라, 레이더, 웨어러�
 
 | 토픽 | 타입 | 주기 | QoS | 근거 |
 |---|---|---|---|---|
-| `/sensors/camera/image_raw/compressed` | `sensor_msgs/CompressedImage` | 30Hz | BEST_EFFORT, depth 5 | 프레임이 독립적·대용량. 재전송보다 최신 프레임이 낫다 |
-| `/sensors/audio/chunk` | `data_collect_msgs/AudioChunk` | 31.25Hz | RELIABLE, depth 10 | 연속 신호. 한 청크 유실이 파형에 구멍을 낸다 |
-| `/sync/clock_offset` | `data_collect_msgs/ClockOffset` | 1Hz | RELIABLE, TRANSIENT_LOCAL | 늦게 뜬 노드도 마지막 오프셋을 즉시 받아야 한다 |
+| `/sensors/camera`<br>`/image_raw/compressed` | `sensor_msgs`<br>`/CompressedImage` | 30Hz | BEST_EFFORT, depth 5 | 프레임이 독립적·대용량. 재전송보다 최신 프레임이 낫다 |
+| `/sensors/audio`<br>`/chunk` | `data_collect_msgs`<br>`/AudioChunk` | 31.25Hz | RELIABLE, depth 10 | 연속 신호. 한 청크 유실이 파형에 구멍을 낸다 |
+| `/sync/clock_offset` | `data_collect_msgs`<br>`/ClockOffset` | 1Hz | RELIABLE, TRANSIENT_LOCAL | 늦게 뜬 노드도 마지막 오프셋을 즉시 받아야 한다 |
 
 ### 2.3 전송 프로토콜
 
