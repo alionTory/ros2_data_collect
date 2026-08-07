@@ -142,11 +142,36 @@ source install/setup.bash
 
 ### 3.2 Windows 측 준비
 
+WSL에서 네트워크 수신을 받기 위해, `%UserProfile%\.wslconfig`를 다음과 같이 작성한다.
+```text
+[wsl2]
+networkingMode=mirrored
+```
+
+다음으로, WSL이 폰으로부터 UDP 수신을 받기 위해, Hyper-V 방화벽에서 5556 포트의 인바운드 트래픽을 열어 주어야 한다.
+powershell을 **관리자 권한으로 실행**한 뒤, 다음 명령어를 입력하면 된다.
+```powershell
+New-NetFirewallHyperVRule `
+  -Name "WSL-UDP-5556" `
+  -DisplayName "WSL UDP 5556" `
+  -Direction Inbound `
+  -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' `
+  -Protocol UDP `
+  -LocalPorts 5556 `
+  -Action Allow
+```
+(`-VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}'`는 WSL을 대상으로 설정하겠다는 의미)
+
+pip 의존성을 설치한다.
 ```powershell
 pip install opencv-python sounddevice numpy
 python data_capture\print_device.py
 ```
 
+다음 파이썬 코드를 실행한다.
+```powershell
+python data_capture\print_device.py
+```
 입력 채널을 제공하는 장치 목록이 출력된다. 여기서 마이크를 하나 고른다.
 **MME API 장치는 ADC 취득 시각을 제공하지 않는 경우가 많으므로 지양한다.**
 
