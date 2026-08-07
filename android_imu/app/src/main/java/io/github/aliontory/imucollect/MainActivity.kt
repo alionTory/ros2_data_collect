@@ -9,13 +9,25 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import io.github.aliontory.imucollect.ui.theme.ImuCollectTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetAddress
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -33,11 +45,52 @@ fun MenuPreview() {
     ImuCollectTheme {
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
             Column(modifier = Modifier.padding(innerPadding)) {
-                TextField(state = rememberTextFieldState(), label = { Text("IP 주소") })
-                Button(onClick = {}) {
+                val ipAddressState = rememberTextFieldState()
+                TextField(state = ipAddressState, label = { Text("IP 주소") })
+
+                val portState = rememberTextFieldState()
+                var errorMessage by remember { mutableStateOf<String?>(null) }
+                TextField(
+                    state = portState,
+                    isError = errorMessage != null,
+                    supportingText = {
+                        errorMessage?.let {
+                            Text(
+                                it,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    },
+                    label = { Text("포트 주소") })
+
+                val scope = rememberCoroutineScope()
+                Button(onClick = {
+                    val port = portState.text.toString().toIntOrNull()
+                    if (port == null) {
+                        errorMessage = "포트 주소는 정수여야 합니다."
+                    } else {
+                        errorMessage = null
+                        scope.launch {
+                            sendUdpMessage(ipAddressState.text.toString(), port, "Hello.")
+                        }
+                    }
+
+                }) {
                     Text("UDP 전송")
                 }
             }
         }
     }
+}
+
+suspend fun sendUdpMessage(address: String, port: Int, text: String) {
+    withContext(Dispatchers.IO) {
+        DatagramSocket().use { socket ->
+            val data = text.toByteArray()
+            val inetAddress = InetAddress.getByName(address)
+            val packet = DatagramPacket(data, data.size, inetAddress, port)
+            socket.send(packet)
+        }
+    }
+
 }
