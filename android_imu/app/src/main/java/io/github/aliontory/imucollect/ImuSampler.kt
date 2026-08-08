@@ -56,7 +56,7 @@ class ImuSampler(context: Context) {
             }
         }
 
-        override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
             Log.i(TAG, "센서 ${sensor?.name}의 accurcy가 $accuracy 로 변경됨.")
         }
     }
