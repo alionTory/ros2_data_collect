@@ -33,12 +33,25 @@ import java.net.InetAddress
 private const val TAG = "MainActivity"
 
 class MainActivity : ComponentActivity() {
+    private lateinit var imuSampler: ImuSampler
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        imuSampler = ImuSampler(this)
         enableEdgeToEdge()
         setContent {
             MenuPreview()
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        imuSampler.start()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        imuSampler.stop()
     }
 }
 
