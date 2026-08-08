@@ -52,7 +52,7 @@ class ImuSampler(context: Context) {
             when (event.sensor.type) {
                 Sensor.TYPE_ACCELEROMETER -> accelerometerWindow.add(event.timestamp)
                 Sensor.TYPE_GYROSCOPE -> gyroscopeWindow.add(event.timestamp)
-                else -> error("예상치 못한 센서 타입: ${event.sensor.type}. 이름: ${event.sensor.name}")
+                else -> Log.e(TAG, "예상치 못한 센서 타입: ${event.sensor.type}. 이름: ${event.sensor.name}")
             }
         }
 
