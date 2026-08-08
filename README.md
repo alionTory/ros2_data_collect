@@ -430,3 +430,12 @@ timestamp_ns = now_ns - int(first_sample_age * 1e9)
 
 `inputBufferAdcTime`이 0을 반환하는 백엔드가 있어 폴백을 두었으나, 사용 중인 장치는
 유효값을 제공하였다.
+
+
+### 7.6 IMU 센서 수집 주기
+초기에는 IMU 센서 수집 주파수에 대해 50Hz를 목표로 삼았고, 이를 센서 수집 콜백 등록 시 요청값으로 주었다. 그러나 실제 측정 결과, 주파수가 52Hz로 측정되었다.
+
+이유는 내 스마트폰에 있는 IMU 센서 STMicro LSM6DSO의 ODR(Output Data Rate)이 12.5, 26, 52, 104, ... Hz 중 하나의 값만 지원하기 때문이었다.
+(<https://www.st.com/resource/en/datasheet/lsm6dso.pdf>)
+
+따라서 목표 수집 주파수를 52Hz로 수정하였다.
