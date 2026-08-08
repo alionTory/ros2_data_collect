@@ -6,6 +6,8 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.util.Log
+import kotlin.contracts.ExperimentalContracts
+import kotlin.contracts.contract
 
 /** 센서 정보를 담는 타입 */
 data class SensorSnapshot(
@@ -47,7 +49,7 @@ class ImuSampler(context: Context) {
 
     private val sensorEventListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
-            when(event.sensor.type){
+            when (event.sensor.type) {
                 Sensor.TYPE_ACCELEROMETER -> accelerometerWindow.add(event.timestamp)
                 Sensor.TYPE_GYROSCOPE -> gyroscopeWindow.add(event.timestamp)
                 else -> error("예상치 못한 센서 타입: ${event.sensor.type}. 이름: ${event.sensor.name}")
@@ -64,7 +66,21 @@ class ImuSampler(context: Context) {
      * @return 활성화에 성공했으면 true */
     fun start(): Boolean {
         val result = isSensorExist() && registerListners();
-        if(result) Log.i(TAG, "${ImuSampler::class.simpleName} 객체 활성화 성공")
+        check(accelerometer != null)
+        check(gyroscope != null)
+        if (result) {
+            Log.i(TAG, "${ImuSampler::class.simpleName} 객체 활성화 성공")
+            Log.i(
+                TAG, "${accelerometer.name} / ${accelerometer.vendor} / " +
+                        "minDelay=${accelerometer.minDelay}us / maxDelay=${accelerometer.maxDelay}us / " +
+                        "fifo=${accelerometer.fifoMaxEventCount}"
+            )
+            Log.i(
+                TAG, "${gyroscope.name} / ${gyroscope.vendor} / " +
+                        "minDelay=${gyroscope.minDelay}us / maxDelay=${gyroscope.maxDelay}us / " +
+                        "fifo=${gyroscope.fifoMaxEventCount}"
+            )
+        }
         return result
     }
 
@@ -119,7 +135,7 @@ class ImuSampler(context: Context) {
     /**
      * 현재 센서 수집 현황을 나타내는 [SensorSnapshot] 객체를 만들어 반환한다.
      */
-    fun snapshot(): SensorSnapshot{
+    fun snapshot(): SensorSnapshot {
         return SensorSnapshot(
             accelCount = accelerometerWindow.count,
             accelHz = accelerometerWindow.hz(),
