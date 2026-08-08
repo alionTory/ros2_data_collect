@@ -22,6 +22,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.aliontory.imucollect.ui.theme.ImuCollectTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -29,6 +34,8 @@ import kotlinx.coroutines.withContext
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 private const val TAG = "MainActivity"
 
@@ -40,7 +47,7 @@ class MainActivity : ComponentActivity() {
         imuSampler = ImuSampler(this)
         enableEdgeToEdge()
         setContent {
-            MenuPreview()
+            ImuMenu(imuSampler)
         }
     }
 
@@ -56,45 +63,72 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-@Preview
-fun MenuPreview() {
+fun ImuMenu(
+    imuSampler: ImuSampler,
+    updatePeriod: Duration = 1.seconds,
+    sensorSnapshotViewModel: SensorSnapshotViewModel = viewModel(
+        factory = viewModelFactory {
+            initializer {
+                SensorSnapshotViewModel(imuSampler, updatePeriod)
+            }
+        }
+    )
+) {
     ImuCollectTheme {
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
             Column(modifier = Modifier.padding(innerPadding)) {
-                val ipAddressState = rememberTextFieldState()
-                TextField(state = ipAddressState, label = { Text("IP 주소") })
+                SensorSnapshotMenu(sensorSnapshotViewModel)
+                UdpSendMenu()
+            }
+        }
+    }
+}
 
-                val portState = rememberTextFieldState()
-                var errorMessage by remember { mutableStateOf<String?>(null) }
-                TextField(
-                    state = portState,
-                    isError = errorMessage != null,
-                    supportingText = {
-                        errorMessage?.let {
-                            Text(
-                                it,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        }
-                    },
-                    label = { Text("포트 주소") })
+@Composable
+fun SensorSnapshotMenu(sensorSnapshotViewModel: SensorSnapshotViewModel, modifier: Modifier = Modifier) {
+    Column(modifier = modifier.padding(16.dp)){
+        val sensorSnapshot by sensorSnapshotViewModel.sensorSnapshot.collectAsStateWithLifecycle()
+        Text("가속도 - 요청 ${ImuSampler.SAMPLING_RATE_HZ}Hz, 실측 ${sensorSnapshot.accelHz}, 표본 수 ${sensorSnapshot.accelCount}")
+        Text("자이로 - 요청 ${ImuSampler.SAMPLING_RATE_HZ}Hz, 실측 ${sensorSnapshot.gyroHz}, 표본 수 ${sensorSnapshot.gyroCount}")
+    }
+}
 
-                val scope = rememberCoroutineScope()
-                Button(onClick = {
-                    val port = portState.text.toString().toIntOrNull()
-                    if (port == null) {
-                        errorMessage = "포트 주소는 정수여야 합니다."
-                    } else {
-                        errorMessage = null
-                        scope.launch {
-                            sendUdpMessage(ipAddressState.text.toString(), port, "Hello.")
-                        }
-                    }
 
-                }) {
-                    Text("UDP 전송")
+@Composable
+fun UdpSendMenu(modifier: Modifier = Modifier) {
+    Column(modifier = modifier.padding(16.dp)) {
+        val ipAddressState = rememberTextFieldState()
+        TextField(state = ipAddressState, label = { Text("IP 주소") })
+
+        val portState = rememberTextFieldState()
+        var errorMessage by remember { mutableStateOf<String?>(null) }
+        TextField(
+            state = portState,
+            isError = errorMessage != null,
+            supportingText = {
+                errorMessage?.let {
+                    Text(
+                        it,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            label = { Text("포트 주소") })
+
+        val scope = rememberCoroutineScope()
+        Button(onClick = {
+            val port = portState.text.toString().toIntOrNull()
+            if (port == null) {
+                errorMessage = "포트 주소는 정수여야 합니다."
+            } else {
+                errorMessage = null
+                scope.launch {
+                    sendUdpMessage(ipAddressState.text.toString(), port, "Hello.")
                 }
             }
+
+        }) {
+            Text("UDP 전송")
         }
     }
 }

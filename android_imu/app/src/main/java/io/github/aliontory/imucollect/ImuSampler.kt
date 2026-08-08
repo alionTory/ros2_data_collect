@@ -33,6 +33,7 @@ class ImuSampler(context: Context) {
 
         /** 20,000μs = 50Hz. 요청값이며 보장이 아니다. */
         const val SAMPLING_PERIOD_US = 20_000
+        const val SAMPLING_RATE_HZ = 1e6.toInt() / SAMPLING_PERIOD_US
     }
 
     private val sensorManager =
