@@ -5,18 +5,26 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import android.os.SystemClock
 import android.util.Log
 
-/** UI 표시용 읽기 전용 묶음. 1초에 한 번 만들어진다. */
+/** 센서 정보를 담는 타입 */
 data class SensorSnapshot(
+    /**
+     * 가속도계 센서 데이터 수집 횟수.
+     */
     val accelCount: Long = 0L,
+    /**
+     * 가속도계 센서 데이터 수집율(Hz).
+     */
     val accelHz: Double? = null,
+    /**
+     * 자이로스코프 센서 데이터 수집 횟수.
+     */
     val gyroCount: Long = 0L,
+    /**
+     * 자이로스코프 센서 데이터 수집율(Hz).
+     */
     val gyroHz: Double? = null,
-    val clockDeltaLastNs: Long = 0L,
-    val clockDeltaMinNs: Long = 0L,
-    val clockDeltaMaxNs: Long = 0L,
 )
 
 class ImuSampler(context: Context) {
@@ -33,9 +41,16 @@ class ImuSampler(context: Context) {
     private val accelerometer: Sensor? = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
     private val gyroscope: Sensor? = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
 
+    private var accelerometerWindow = SensorWindow()
+    private var gyroscopeWindow = SensorWindow()
+
     private val sensorEventListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
-            Log.d(TAG, "센서 수집됨. 센서=${event.sensor?.name}, 타임스탬프=${event.timestamp} 값=${event.values.contentToString()}")
+            when(event.sensor.type){
+                Sensor.TYPE_ACCELEROMETER -> accelerometerWindow.add(event.timestamp)
+                Sensor.TYPE_GYROSCOPE -> gyroscopeWindow.add(event.timestamp)
+                else -> error("예상치 못한 센서 타입: ${event.sensor.type}. 이름: ${event.sensor.name}")
+            }
         }
 
         override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {
@@ -98,6 +113,18 @@ class ImuSampler(context: Context) {
      */
     fun stop() {
         sensorManager.unregisterListener(sensorEventListener)
+    }
+
+    /**
+     * 현재 센서 수집 현황을 나타내는 [SensorSnapshot] 객체를 만들어 반환한다.
+     */
+    fun snapshot(): SensorSnapshot{
+        return SensorSnapshot(
+            accelCount = accelerometerWindow.count,
+            accelHz = accelerometerWindow.hz(),
+            gyroCount = gyroscopeWindow.count,
+            gyroHz = gyroscopeWindow.hz()
+        )
     }
 
 }
