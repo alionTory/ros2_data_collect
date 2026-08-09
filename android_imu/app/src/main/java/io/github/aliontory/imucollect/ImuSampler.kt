@@ -83,7 +83,14 @@ class ImuSampler(context: Context) {
     /**
      * 센서 시계와 폰 시계 타임스탬프 값 차이.
      */
-    private val clockDelta = MinMaxLast()
+    private var clockDelta = MinMaxLast()
+
+    /**
+     * 센서 시계와 폰 시계 타임스탬프 값 차이 기록을 초기화한다.
+     */
+    fun resetClockDelta(){
+        clockDelta = MinMaxLast()
+    }
 
     private val sensorEventListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
