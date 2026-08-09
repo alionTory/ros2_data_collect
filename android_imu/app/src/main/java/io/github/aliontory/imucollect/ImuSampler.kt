@@ -37,7 +37,7 @@ class ImuSampler(context: Context) {
         /** 요청값이며 보장이 아니다. */
         const val SAMPLING_PERIOD_US = 1e6.toInt() / SAMPLING_RATE_HZ
 
-        private const val GAP_THRESHOLD_NS = SAMPLING_PERIOD_US * 1e3.toInt() * 3
+        private const val GAP_THRESHOLD_NS = SAMPLING_PERIOD_US * 1e3.toLong() * 3
     }
 
     private val sensorManager =
