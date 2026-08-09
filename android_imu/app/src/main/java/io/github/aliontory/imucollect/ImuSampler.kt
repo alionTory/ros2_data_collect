@@ -6,8 +6,7 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.util.Log
-import kotlin.contracts.ExperimentalContracts
-import kotlin.contracts.contract
+import kotlin.time.Duration.Companion.microseconds
 
 /** 센서 정보를 담는 타입 */
 data class SensorSnapshot(
@@ -34,8 +33,11 @@ class ImuSampler(context: Context) {
         private const val TAG = "ImuSampler"
 
         const val SAMPLING_RATE_HZ = 52
+
         /** 요청값이며 보장이 아니다. */
         const val SAMPLING_PERIOD_US = 1e6.toInt() / SAMPLING_RATE_HZ
+
+        private const val GAP_THRESHOLD_NS = SAMPLING_PERIOD_US * 1e3.toInt() * 3
     }
 
     private val sensorManager =
@@ -44,8 +46,8 @@ class ImuSampler(context: Context) {
     private val accelerometer: Sensor? = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
     private val gyroscope: Sensor? = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
 
-    private var accelerometerWindow = SensorWindow()
-    private var gyroscopeWindow = SensorWindow()
+    private var accelerometerWindow = SensorWindow(GAP_THRESHOLD_NS)
+    private var gyroscopeWindow = SensorWindow(GAP_THRESHOLD_NS)
 
     private val sensorEventListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
