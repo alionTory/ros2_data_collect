@@ -92,6 +92,7 @@ fun SensorSnapshotMenu(imuSampler: ImuSampler, sensorSnapshotViewModel: SensorSn
         Text(String.format(Locale.US,"가속도 - 요청 %dHz, 실측 %.6fHz, 표본 수 %d", ImuSampler.SAMPLING_RATE_HZ, sensorSnapshot.accelHz, sensorSnapshot.accelCount))
         Text(String.format(Locale.US, "자이로 - 요청 %dHz, 실측 %.6fHz, 표본 수 %d", ImuSampler.SAMPLING_RATE_HZ, sensorSnapshot.gyroHz, sensorSnapshot.gyroCount))
         Text(String.format(Locale.US, "클럭 차이 - 최근 %dms, 최소 %dms, 최대 %dms", sensorSnapshot.clockDeltaLastNs.nanoseconds.inWholeMilliseconds, sensorSnapshot.clockDeltaMinNs.nanoseconds.inWholeMilliseconds, sensorSnapshot.clockDeltaMaxNs.nanoseconds.inWholeMilliseconds))
+        Text("Deep Sleep 시간 - 초기 ${sensorSnapshotViewModel.deepSleepTimeMsInitial}ms, 현재 ${sensorSnapshotViewModel.deepSleepTimeMs.collectAsStateWithLifecycle().value}ms")
         Button(onClick = {imuSampler.resetClockDelta()}) {
             Text("클럭 차이 초기화")
         }

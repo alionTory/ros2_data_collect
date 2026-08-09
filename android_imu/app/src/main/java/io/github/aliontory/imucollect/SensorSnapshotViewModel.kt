@@ -1,5 +1,6 @@
 package io.github.aliontory.imucollect
 
+import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
@@ -15,12 +16,20 @@ import kotlin.time.Duration
  */
 class SensorSnapshotViewModel(imuSampler: ImuSampler, updatePeriod: Duration): ViewModel() {
     private val _sensorSnapshot = MutableStateFlow(SensorSnapshot())
+    private val _deepSleepTimeMs = MutableStateFlow(0L)
     val sensorSnapshot = _sensorSnapshot.asStateFlow()
+
+    /**
+     * 부팅 이후 deep sleep을 한 시간(밀리세컨드)
+     */
+    val deepSleepTimeMs = _deepSleepTimeMs.asStateFlow()
+    val deepSleepTimeMsInitial = SystemClock.elapsedRealtime() - SystemClock.uptimeMillis()
 
     init{
         viewModelScope.launch {
             while(isActive){
                 _sensorSnapshot.value = imuSampler.snapshot()
+                _deepSleepTimeMs.value = SystemClock.elapsedRealtime() - SystemClock.uptimeMillis()
                 delay(updatePeriod)
             }
         }
