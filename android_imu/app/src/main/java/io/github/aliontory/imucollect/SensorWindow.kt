@@ -1,7 +1,5 @@
 package io.github.aliontory.imucollect
 
-import kotlin.time.Duration
-
 /**
  * 한 센서 소스에 대한 데이터 수집을 기록하고, 통계를 제공한다.
  *

@@ -104,7 +104,7 @@ class ImuSampler(context: Context) {
      * [ImuSampler] 객체를 활성화한다.
      * @return 활성화에 성공했으면 true */
     fun start(): Boolean {
-        val result = isSensorExist() && registerListners();
+        val result = isSensorExist() && registerListners()
         check(accelerometer != null)
         check(gyroscope != null)
         if (result) {

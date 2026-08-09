@@ -21,7 +21,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -34,6 +33,7 @@ import kotlinx.coroutines.withContext
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+import java.util.Locale
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.Duration.Companion.seconds
@@ -89,9 +89,9 @@ fun ImuMenu(
 fun SensorSnapshotMenu(sensorSnapshotViewModel: SensorSnapshotViewModel, modifier: Modifier = Modifier) {
     Column(modifier = modifier.padding(16.dp)){
         val sensorSnapshot by sensorSnapshotViewModel.sensorSnapshot.collectAsStateWithLifecycle()
-        Text(String.format("가속도 - 요청 %dHz, 실측 %.6fHz, 표본 수 %d", ImuSampler.SAMPLING_RATE_HZ, sensorSnapshot.accelHz, sensorSnapshot.accelCount))
-        Text(String.format("자이로 - 요청 %dHz, 실측 %.6fHz, 표본 수 %d", ImuSampler.SAMPLING_RATE_HZ, sensorSnapshot.gyroHz, sensorSnapshot.gyroCount))
-        Text(String.format("클럭 차이 - 최근 %dms, 최소 %dms, 최대 %dms", sensorSnapshot.clockDeltaLastNs.nanoseconds.inWholeMilliseconds, sensorSnapshot.clockDeltaMinNs.nanoseconds.inWholeMilliseconds, sensorSnapshot.clockDeltaMaxNs.nanoseconds.inWholeMilliseconds))
+        Text(String.format(Locale.US,"가속도 - 요청 %dHz, 실측 %.6fHz, 표본 수 %d", ImuSampler.SAMPLING_RATE_HZ, sensorSnapshot.accelHz, sensorSnapshot.accelCount))
+        Text(String.format(Locale.US, "자이로 - 요청 %dHz, 실측 %.6fHz, 표본 수 %d", ImuSampler.SAMPLING_RATE_HZ, sensorSnapshot.gyroHz, sensorSnapshot.gyroCount))
+        Text(String.format(Locale.US, "클럭 차이 - 최근 %dms, 최소 %dms, 최대 %dms", sensorSnapshot.clockDeltaLastNs.nanoseconds.inWholeMilliseconds, sensorSnapshot.clockDeltaMinNs.nanoseconds.inWholeMilliseconds, sensorSnapshot.clockDeltaMaxNs.nanoseconds.inWholeMilliseconds))
     }
 }
 
