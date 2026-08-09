@@ -5,8 +5,8 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.os.SystemClock
 import android.util.Log
-import kotlin.time.Duration.Companion.microseconds
 
 /** 센서 정보를 담는 타입 */
 data class SensorSnapshot(
@@ -26,7 +26,38 @@ data class SensorSnapshot(
      * 자이로스코프 센서 데이터 수집율(Hz).
      */
     val gyroHz: Double? = null,
+
+    /**
+     * 센서 시계와 폰 시계 타임스탬프 값 차이.
+     */
+    val clockDeltaLastNs: Long = 0L,
+    val clockDeltaMinNs: Long = 0L,
+    val clockDeltaMaxNs: Long = 0L,
 )
+
+/**
+ * [update]에서 주어진 값들의 가장 최근값, 최솟값, 최댓값을 기록.
+ */
+class MinMaxLast {
+    /**
+     * 최근값. 초기값은 0L.
+     */
+    var last = 0L
+        private set
+
+    var min = Long.MAX_VALUE
+        private set
+    var max = Long.MIN_VALUE
+        private set
+
+    fun update(newValue: Long) {
+        last = newValue
+        if (newValue < min)
+            min = newValue
+        else if (max < newValue)
+            max = newValue
+    }
+}
 
 class ImuSampler(context: Context) {
     companion object {
@@ -49,8 +80,14 @@ class ImuSampler(context: Context) {
     private var accelerometerWindow = SensorWindow(GAP_THRESHOLD_NS)
     private var gyroscopeWindow = SensorWindow(GAP_THRESHOLD_NS)
 
+    /**
+     * 센서 시계와 폰 시계 타임스탬프 값 차이.
+     */
+    private val clockDelta = MinMaxLast()
+
     private val sensorEventListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
+            clockDelta.update(SystemClock.elapsedRealtimeNanos()-event.timestamp)
             when (event.sensor.type) {
                 Sensor.TYPE_ACCELEROMETER -> accelerometerWindow.add(event.timestamp)
                 Sensor.TYPE_GYROSCOPE -> gyroscopeWindow.add(event.timestamp)
@@ -142,7 +179,10 @@ class ImuSampler(context: Context) {
             accelCount = accelerometerWindow.count,
             accelHz = accelerometerWindow.hz(),
             gyroCount = gyroscopeWindow.count,
-            gyroHz = gyroscopeWindow.hz()
+            gyroHz = gyroscopeWindow.hz(),
+            clockDeltaLastNs = clockDelta.last,
+            clockDeltaMinNs = clockDelta.min,
+            clockDeltaMaxNs = clockDelta.max,
         )
     }
 
