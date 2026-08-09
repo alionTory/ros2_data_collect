@@ -139,7 +139,7 @@ class SensorWindow(val gapThresholdNs: Long) {
      * - 타임스탬프 시퀀스 내에, 차가 [gapThresholdNs] 이하인 두 인접한 시각이 하나도 없는 경우
      * 0L을 반환한다.
      */
-    fun hz(): Double? {
+    fun hz(): Double {
         val lastNs = this.lastNs
         return if (lastNs == null) {
             0.0
