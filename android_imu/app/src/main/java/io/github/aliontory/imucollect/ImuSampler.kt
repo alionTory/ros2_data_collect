@@ -19,6 +19,10 @@ data class SensorSnapshot(
      */
     val accelHz: Double? = null,
     /**
+     * 가속도계 센서 데이터 수집 간격이 경계치를 초과한 횟수.
+     */
+    val accelGapExceedCount:Long = 0L,
+    /**
      * 자이로스코프 센서 데이터 수집 횟수.
      */
     val gyroCount: Long = 0L,
@@ -26,6 +30,10 @@ data class SensorSnapshot(
      * 자이로스코프 센서 데이터 수집율(Hz).
      */
     val gyroHz: Double? = null,
+    /**
+     * 자이로스코프 센서 데이터 수집 간격이 경계치를 초과한 횟수.
+     */
+    val gyroGapExceedCount:Long = 0L,
 
     /**
      * 센서 시계와 폰 시계 타임스탬프 값 차이.
@@ -185,8 +193,10 @@ class ImuSampler(context: Context) {
         return SensorSnapshot(
             accelCount = accelerometerWindow.count,
             accelHz = accelerometerWindow.hz(),
+            accelGapExceedCount = accelerometerWindow.gapThresholdExceededCount,
             gyroCount = gyroscopeWindow.count,
             gyroHz = gyroscopeWindow.hz(),
+            gyroGapExceedCount = gyroscopeWindow.gapThresholdExceededCount,
             clockDeltaLastNs = clockDelta.last,
             clockDeltaMinNs = clockDelta.min,
             clockDeltaMaxNs = clockDelta.max,
