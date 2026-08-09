@@ -101,7 +101,8 @@ class SensorWindow(val gapThresholdNs: Long) {
      *
      * [lastNs] + [gapThresholdNs] < [timestampNs] 인 경우, [lastNs] ~ [timestampNs] 구간 동인 데이터 수집이 중지되었다 재개된 것으로 간주한다.
      *
-     * - ensure: [lastNs] == [timestampNs]
+     * - ensure: if(old [lastNs] == null) [lastNs] == [timestampNs] else true
+     * - ensure: if(old [lastNs] <= [timestampNs]) [lastNs] == [timestampNs] else [backwardCount] == old [backwardCount] + 1
      * - ensure: old [count] + 1 == [count]
      * @param timestampNs 현재 데이터 수집 시각 (나노세컨드)
      */
@@ -113,12 +114,14 @@ class SensorWindow(val gapThresholdNs: Long) {
             val currentTimeSegments = this._currentTimeSegments
             check(currentTimeSegments != null)
 
-            if (timestampNs < lastNs) backwardCount += 1
-            if (lastNs + gapThresholdNs < timestampNs) {
+            if (timestampNs < lastNs) {
+                backwardCount += 1
+            } else if (lastNs + gapThresholdNs < timestampNs) {
                 startNewTimeSegment(timestampNs)
                 gapThresholdExceededCount += 1
-            } else
+            } else {
                 currentTimeSegments.update(timestampNs)
+            }
         }
         count += 1
     }
