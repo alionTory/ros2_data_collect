@@ -54,7 +54,7 @@ class MinMaxLast {
         last = newValue
         if (newValue < min)
             min = newValue
-        else if (max < newValue)
+        if (max < newValue)
             max = newValue
     }
 }
