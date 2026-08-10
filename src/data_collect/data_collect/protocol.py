@@ -5,16 +5,29 @@ import struct
 import socket
 from typing import NamedTuple
 
-DEFAULT_PORT = 5555
-
 HEADER = struct.Struct('>IBqq')
 """
-헤더
+프레임 헤더
     빅 엔디안, 패딩 없음. (>)
-    payload_len (I): unsigned 4 byte
-    message_type (B): unsigned 1 byte
-    timestamp_ns (q): signed 8 byte
-    seq (메시지 순서 번호) (q): signed 8 byte
+    payload_len (I): unsigned int32 
+    message_type (B): unsigned int8 
+    timestamp_ns (q): signed int64
+    seq (메시지 순서 번호) (q): signed int64
+"""
+
+TYPE_HELLO = 0x00
+TYPE_VIDEO_JPEG = 0x01
+TYPE_AUDIO_PCM = 0x02
+TYPE_IMU_ACCEL = 0x03
+TYPE_IMU_GYRO  = 0x04
+TYPE_SYNC_PING = 0x10
+TYPE_SYNC_PONG = 0x11
+TYPE_SYNC_REPORT = 0x12
+
+MAX_PAYLOAD = 1 << 20  # 1MB
+"""
+페이로드 바이트 길이 상한.
+프레이밍이 깨지면 대용량의 쓰레기값을 읽다 프로세스가 크래시될 수 있음. 이를 방지하기 위한 용도.
 """
 
 AUDIO_SUBHEADER = struct.Struct('>IHI')
@@ -28,22 +41,23 @@ AUDIO_SUBHEADER = struct.Struct('>IHI')
 주의: 오디오 페이로드 PCM은 리틀 엔디안 int16임.
 """
 
-TYPE_HELLO = 0x00
-TYPE_VIDEO_JPEG = 0x01
-TYPE_AUDIO_PCM = 0x02
-TYPE_SYNC_PING = 0x10
-TYPE_SYNC_PONG = 0x11
-TYPE_SYNC_REPORT = 0x12
-
-MAX_PAYLOAD = 1 << 20  # 1MB
-"""
-페이로드 바이트 길이 상한.
-프레이밍이 깨지면 대용량의 쓰레기값을 읽다 프로세스가 크래시될 수 있음. 이를 방지하기 위한 용도.
-"""
-
 AUDIO_BYTES_PER_SAMPLE = 2
 AUDIO_BYTES_PER_SAMPLE_TYPENAME = 'int16'
 AUDIO_BYTES_PER_SAMPLE_CODE = 'h'
+
+DEFAULT_PORT = 5555
+"""외부 센서로부터 비디오 및 오디오 데이터를 수신받는 ROS2 노드에서 열 포트 번호."""
+
+IMU_SUBHEADER = struct.Struct('>Bfff')
+"""
+IMU 샘플용 서브헤더
+    빅 엔디안, 패딩 없음.
+    accuracy (B): unsigned int8
+    x, y, z (f): float32
+"""
+
+IMU_DEFAULT_PORT = 5556
+"""외부 센서로부터 IMU 데이터를 수신하는 ROS 노드에서 열 포트 번호"""
 
 
 class ProtocolError(Exception):
@@ -109,6 +123,21 @@ def parse_audio(payload: bytes):
     if len(pcm) != frame_count * channels * AUDIO_BYTES_PER_SAMPLE:
         raise ProtocolError(f"PCM 길이 {len(pcm)}이 frame_count * channels * AUDIO_BYTES_PER_SAMLE 값 {frame_count * channels * AUDIO_BYTES_PER_SAMPLE}와 불일치.")
     return Audio.make(frame_rate=frame_rate, channels=channels, pcm=pcm)
+
+class Imu(NamedTuple):
+    accuracy: int
+    x: float
+    y: float
+    z: float
+    
+    def pack(self):
+        return IMU_SUBHEADER.pack(self.accuracy, self.x, self.y, self.z)
+
+def parse_imu(payload: bytes):
+    try:
+        return Imu(IMU_SUBHEADER.unpack_from(payload))
+    except struct.error as ex:
+        raise ProtocolError(f"payload 길이 {len(payload)}가 헤더 길이 {AUDIO_SUBHEADER.size}보다 짧음.") from ex
     
 
 def _recv_exact(sock: socket.socket, n: int) -> bytes:
