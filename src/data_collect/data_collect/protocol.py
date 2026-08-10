@@ -54,10 +54,15 @@ class Frame(NamedTuple):
     timestamp_ns: int
     seq: int
     payload: bytes
-
-def pack_frame(message_type: int, timestamp_ns: int, seq: int, payload: bytes) -> bytes:
-    """바이트 시퀀스 데이터 생성"""
-    return HEADER.pack(len(payload), message_type, timestamp_ns, seq) + payload
+    
+    def pack(self):
+        """바이트 시퀀스 데이터 생성"""
+        return HEADER.pack(len(self.payload), self.message_type, self.timestamp_ns, self.seq) + self.payload
+    
+    def send(self, sock: socket.socket):
+        """프레임을 sock으로 전송"""
+        buffer = self.pack()
+        sock.sendall(buffer)
 
 def parse_frame(buffer: bytes) -> Frame:
     """바이트 시퀀스 데이터를 Frame 객체로 변환"""
@@ -74,10 +79,21 @@ def parse_frame(buffer: bytes) -> Frame:
         payload=payload,
     )
 
-def pack_audio(frame_rate: int, channels: int, pcm: bytes) -> bytes:
-    assert len(pcm) % (channels * AUDIO_BYTES_PER_SAMPLE) == 0
-    frame_count = len(pcm) // (channels * AUDIO_BYTES_PER_SAMPLE)
-    return AUDIO_SUBHEADER.pack(frame_rate, channels, frame_count) + pcm
+class Audio(NamedTuple):
+    frame_rate: int
+    channels: int
+    frame_count: int
+    pcm: bytes
+    
+    @classmethod
+    def make(cls, frame_rate: int, channels: int, pcm: bytes):
+        """Audio 객체를 생성한다. frame_count 필드 값은 pcm 길이와 channels 값으로부터 직접 계산한다."""
+        frame_count = len(pcm) // (channels * AUDIO_BYTES_PER_SAMPLE)
+        return cls(frame_rate=frame_rate, channels=channels, frame_count=frame_count, pcm=pcm)
+
+    def pack(self) -> bytes:
+        assert len(self.pcm) % (self.channels * AUDIO_BYTES_PER_SAMPLE) == 0
+        return AUDIO_SUBHEADER.pack(self.frame_rate, self.channels, self.frame_count) + self.pcm
 
 def parse_audio(payload: bytes):
     """
@@ -92,10 +108,10 @@ def parse_audio(payload: bytes):
     pcm = payload[AUDIO_SUBHEADER.size:]
     if len(pcm) != frame_count * channels * AUDIO_BYTES_PER_SAMPLE:
         raise ProtocolError(f"PCM 길이 {len(pcm)}이 frame_count * channels * AUDIO_BYTES_PER_SAMLE 값 {frame_count * channels * AUDIO_BYTES_PER_SAMPLE}와 불일치.")
-    return frame_rate, channels, frame_count, pcm
+    return Audio.make(frame_rate=frame_rate, channels=channels, pcm=pcm)
     
 
-def recv_exact(sock: socket.socket, n: int) -> bytes:
+def _recv_exact(sock: socket.socket, n: int) -> bytes:
     """n 바이트가 모일 때까지 socket에서 값을 읽음."""
     buffer = bytearray()  # 가변 바이트 배열
     while len(buffer) < n:
@@ -107,11 +123,11 @@ def recv_exact(sock: socket.socket, n: int) -> bytes:
 
 def read_frame(sock: socket.socket) -> Frame:
     """소켓에서 프레임 데이터를 읽음."""
-    buffer = recv_exact(sock, HEADER.size)
+    buffer = _recv_exact(sock, HEADER.size)
     length, message_type, timestamp_ns, seq = HEADER.unpack_from(buffer)
     if MAX_PAYLOAD < length:
         raise ProtocolError(f"payload 길이 {length}가 최대 길이 {MAX_PAYLOAD}를 넘음.")
-    payload = recv_exact(sock, length)
+    payload = _recv_exact(sock, length)
     return Frame(
         message_type=message_type,
         timestamp_ns=timestamp_ns,
@@ -119,15 +135,10 @@ def read_frame(sock: socket.socket) -> Frame:
         payload=payload,
     )
 
-def send_frame(sock: socket.socket, message_type: int, timestamp_ns: int, seq: int, payload: bytes):
-    """프레임을 sock으로 전송"""
-    buffer = pack_frame(message_type, timestamp_ns, seq, payload)
-    sock.sendall(buffer)
-
 if __name__ == "__main__":
     # 왕복 테스트
     fake_jpg = bytes(range(256))*100
     fake_timestamp = 1785_000_000_000_000_000
-    frame = parse_frame(pack_frame(TYPE_VIDEO_JPEG, fake_timestamp, 7, fake_jpg))
+    frame = parse_frame(Frame(TYPE_VIDEO_JPEG, fake_timestamp, 7, fake_jpg).pack())
     assert frame == (TYPE_VIDEO_JPEG, fake_timestamp, 7, fake_jpg)
     print("ok. header size = ", HEADER.size)

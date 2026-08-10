@@ -133,7 +133,7 @@ class FrameSender:
                     self.video_in_queue_count.decrease()
                 try:
                     seq = self.next_seq[payload_type]
-                    protocol.send_frame(self.sock, payload_type, timestamp_ns, seq, payload)
+                    protocol.Frame(payload_type, timestamp_ns, seq, payload).send(self.sock)
                     self.next_seq[payload_type] += 1
                 except OSError as e:
                     self.running = False
@@ -263,7 +263,7 @@ class AudioCapturer:
         timestamp_ns = self._first_sample_capture_time_ns(time_info, frames)
         self.capture_window.mark(timestamp_ns)
         pcm = indata.copy().tobytes()  # 버퍼가 재사용되므로 copy 필수
-        payload = protocol.pack_audio(self.audio_frame_rate, AudioCapturer.CHANNELS, pcm)
+        payload = protocol.Audio.make(self.audio_frame_rate, AudioCapturer.CHANNELS, pcm).pack()
         self.message_sender.put_audio(timestamp_ns, payload)
         
     def _first_sample_capture_time_ns(self, time_info, frame_count):
@@ -420,7 +420,7 @@ def find_input_device(name_substring: str, hostapi_substring: str | None = None)
 
 def main():
     with FrameSender() as frame_sender:
-        audio_capturer = AudioCapturer(frame_sender, device=find_input_device("인텔", "WASAPI"))
+        audio_capturer = AudioCapturer(frame_sender, device=find_input_device("buds", "WASAPI"))
         video_capturer = VideoCapturer(frame_sender)
         with audio_capturer, video_capturer:
             start_ns = time.time_ns()
