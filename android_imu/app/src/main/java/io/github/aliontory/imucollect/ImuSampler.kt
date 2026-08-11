@@ -7,6 +7,8 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.SystemClock
 import android.util.Log
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ReceiveChannel
 
 /** 센서 정보를 담는 타입 */
 data class SensorSnapshot(
@@ -21,7 +23,7 @@ data class SensorSnapshot(
     /**
      * 가속도계 센서 데이터 수집 간격이 경계치를 초과한 횟수.
      */
-    val accelGapExceedCount:Long = 0L,
+    val accelGapExceedCount: Long = 0L,
     /**
      * 자이로스코프 센서 데이터 수집 횟수.
      */
@@ -33,7 +35,7 @@ data class SensorSnapshot(
     /**
      * 자이로스코프 센서 데이터 수집 간격이 경계치를 초과한 횟수.
      */
-    val gyroGapExceedCount:Long = 0L,
+    val gyroGapExceedCount: Long = 0L,
 
     /**
      * 센서 시계와 폰 시계 타임스탬프 값 차이.
@@ -41,6 +43,11 @@ data class SensorSnapshot(
     val clockDeltaLastNs: Long = 0L,
     val clockDeltaMinNs: Long = 0L,
     val clockDeltaMaxNs: Long = 0L,
+
+    /**
+     * 큐 공간이 부족해서 enqueue에 실패한 횟수
+     */
+    val queueOverflowCount: Long = 0L,
 )
 
 /**
@@ -67,6 +74,9 @@ class MinMaxLast {
     }
 }
 
+/**
+ * 센서로부터 IMU 데이터를 받아 큐에 저장한다.
+ */
 class ImuSampler(context: Context) {
     companion object {
         private const val TAG = "ImuSampler"
@@ -88,6 +98,8 @@ class ImuSampler(context: Context) {
     private var accelerometerWindow = SensorWindow(GAP_THRESHOLD_NS)
     private var gyroscopeWindow = SensorWindow(GAP_THRESHOLD_NS)
 
+    private var queueOverflowCount = 0L
+
     /**
      * 센서 시계와 폰 시계 타임스탬프 값 차이.
      */
@@ -96,17 +108,43 @@ class ImuSampler(context: Context) {
     /**
      * 센서 시계와 폰 시계 타임스탬프 값 차이 기록을 초기화한다.
      */
-    fun resetClockDelta(){
+    fun resetClockDelta() {
         clockDelta = MinMaxLast()
     }
 
+    private var _queue = Channel<ImuSample>()
+
+    /**
+     * [start] 호출 이후 IMU 데이터가 저장될 큐.
+     */
+    val queue: ReceiveChannel<ImuSample>
+        get() = _queue
+
     private val sensorEventListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
-            clockDelta.update(SystemClock.elapsedRealtimeNanos()-event.timestamp)
-            when (event.sensor.type) {
-                Sensor.TYPE_ACCELEROMETER -> accelerometerWindow.add(event.timestamp)
-                Sensor.TYPE_GYROSCOPE -> gyroscopeWindow.add(event.timestamp)
-                else -> Log.e(TAG, "예상치 못한 센서 타입: ${event.sensor.type}. 이름: ${event.sensor.name}")
+            clockDelta.update(SystemClock.elapsedRealtimeNanos() - event.timestamp)
+
+            val messageType = when (event.sensor.type) {
+                Sensor.TYPE_ACCELEROMETER -> MessageType.IMU_ACCEL
+                Sensor.TYPE_GYROSCOPE     -> MessageType.IMU_GYRO
+                else -> {
+                    Log.e(TAG, "예상치 못한 센서 타입: ${event.sensor.type}")
+                    return
+                }
+            }
+
+            when (messageType) {
+                MessageType.IMU_ACCEL -> accelerometerWindow.add(event.timestamp)
+                MessageType.IMU_GYRO -> gyroscopeWindow.add(event.timestamp)
+            }
+
+            val enqueueResult = _queue.trySend(ImuSample(messageType, event.timestamp, event.accuracy.toByte(), event.values[0], event.values[1], event.values[2]))
+
+            if(enqueueResult.isFailure){
+                if(enqueueResult.isClosed)
+                    Log.e(TAG, "enqueue 실패 - 큐가 닫혀 있음.")
+                else
+                    queueOverflowCount += 1
             }
         }
 
@@ -117,11 +155,13 @@ class ImuSampler(context: Context) {
 
     /**
      * [ImuSampler] 객체를 활성화한다.
-     * @return 활성화에 성공했으면 true */
+     * @return 활성화에 성공했으면 true
+     */
     fun start(): Boolean {
         val result = isSensorExist() && registerListners()
         check(accelerometer != null)
         check(gyroscope != null)
+
         if (result) {
             Log.i(TAG, "${ImuSampler::class.simpleName} 객체 활성화 성공")
             Log.i(
@@ -181,9 +221,13 @@ class ImuSampler(context: Context) {
 
     /**
      * [ImuSampler] 객체를 비활성화한다.
+     *
+     * ensure: 기존 [queue]를 닫고, 새 큐로 교체한다.
      */
     fun stop() {
         sensorManager.unregisterListener(sensorEventListener)
+        _queue.close()
+        _queue = Channel()
     }
 
     /**
@@ -200,6 +244,7 @@ class ImuSampler(context: Context) {
             clockDeltaLastNs = clockDelta.last,
             clockDeltaMinNs = clockDelta.min,
             clockDeltaMaxNs = clockDelta.max,
+            queueOverflowCount = queueOverflowCount
         )
     }
 

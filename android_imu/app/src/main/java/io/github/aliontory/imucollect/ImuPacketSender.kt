@@ -6,7 +6,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.net.DatagramPacket
@@ -21,7 +21,7 @@ import kotlin.time.Duration
 class ImuPacketSender(
     val host: String,
     val port: Int,
-    val queue: Channel<ImuSample>
+    val queue: ReceiveChannel<ImuSample>
 ) {
     companion object {
         private const val TAG = "ImuPacketSender"
@@ -41,13 +41,6 @@ class ImuPacketSender(
             seqArray[key.ordinal] = value
         }
     }
-
-    /**
-     * 큐 오버플로우로 인해 데이터가 유실된 횟수
-     */
-    @Volatile
-    var queueOverflowCount = 0L
-        private set
 
     /**
      * 소켓 에러로 전송에 실패한 횟수
