@@ -3,11 +3,16 @@ package io.github.aliontory.imucollect
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
+enum class MessageType(val code: Byte){
+    IMU_ACCEL(0x03),
+    IMU_GYRO(0x04),
+}
+
 /**
  * IMU 센서 샘플
  */
 data class ImuSample(
-    val messageType: Byte,
+    val messageType: MessageType,
     val timestampNs: Long,
     val accuracy: Byte,
     val x: Float,
@@ -19,9 +24,6 @@ data class ImuSample(
         const val HEADER_SIZE = 21
         const val IMU_PAYLOAD_SIZE = 13
         const val PACKET_SIZE = HEADER_SIZE + IMU_PAYLOAD_SIZE
-
-        const val TYPE_IMU_ACCEL: Byte = 0x03
-        const val TYPE_IMU_GYRO: Byte = 0x04
     }
 
     /**
@@ -47,7 +49,7 @@ data class ImuSample(
         val buf = ByteBuffer.allocate(PACKET_SIZE).order(ByteOrder.BIG_ENDIAN)
 
         buf.putInt(IMU_PAYLOAD_SIZE)
-        buf.put(messageType)
+        buf.put(messageType.code)
         buf.putLong(timestampNs)
         buf.putLong(seq)
 

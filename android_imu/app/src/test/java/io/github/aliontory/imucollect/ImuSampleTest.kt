@@ -7,7 +7,7 @@ import org.junit.Test
 class ImuSampleTest {
     @Test
     fun encodeTest() {
-        val messageType = ImuSample.TYPE_IMU_ACCEL
+        val messageType = MessageType.IMU_ACCEL
         val nowNs = System.nanoTime()
         val accuracy = SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM.toByte()
         val x = 0f
@@ -22,6 +22,6 @@ class ImuSampleTest {
         Assert.assertEquals(failMessage, 0x00.toByte(), byteArray[2])
         Assert.assertEquals(failMessage, 0x0D.toByte(), byteArray[3])
 
-        Assert.assertEquals("메시지 타입이 보존되어야 함", messageType, byteArray[4])
+        Assert.assertEquals("메시지 타입이 보존되어야 함", messageType.code, byteArray[4])
     }
 }
