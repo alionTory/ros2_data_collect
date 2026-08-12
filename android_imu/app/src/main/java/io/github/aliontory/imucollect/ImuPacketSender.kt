@@ -15,6 +15,29 @@ import java.net.InetAddress
 import java.util.concurrent.atomic.AtomicLongArray
 import kotlin.time.Duration
 
+data class ImuPacketSenderSnapshot(
+    /**
+     * 가속도 센서 데이터 전송 시도 수.
+     *
+     * 이는 예외가 발생하지 않고 소켓 send 호출에 성공한 수를 나타낸다.
+     * 네트워크상에서 데이터가 실제로 목적지까지 전송되었는지 여부와는 관계가 없다.
+     */
+    val accelSentCount: Long = 0L,
+    /**
+     * 자이로스코프 센서 데이터 전송 시도 수.
+     *
+     * 이는 예외가 발생하지 않고 소켓 send 호출에 성공한 수를 나타낸다.
+     * 네트워크상에서 데이터가 실제로 목적지까지 전송되었는지 여부와는 관계가 없다.
+     */
+    val gyroSentCount: Long = 0L,
+    /**
+     * 소켓 에러로 전송에 실패한 횟수
+     */
+    val sendErrorCount: Long = 0L,
+    val lastSendErrorMessage: String? = null,
+)
+
+
 /**
  * 큐에 쌓인 [ImuSample] 을 UDP 로 전송한다.
  */
@@ -53,12 +76,6 @@ class ImuPacketSender(
     var lastSendErrorMessage: String? = null
         private set
 
-    /**
-     * 센서별 전송 시도 수를 반환.
-     */
-    fun sentCount(messageType: MessageType): Long = nextSeq[messageType]
-    // nextSeq와 같은 값이지만, 읽기 전용으로 노출된다.
-
     var started = false
         private set
     var stopped = false
@@ -82,7 +99,7 @@ class ImuPacketSender(
             } else {
                 try {
                     for (sample in queue) sendOne(sample)
-                } catch (e: CancellationException) {
+                } catch (_: CancellationException) {
                     Log.i(TAG, "타임아웃으로 인해 IMU 전송 작업이 중단됨. 큐를 전부 비우지 못했을 수 있음.")
                 }
             }
@@ -126,16 +143,26 @@ class ImuPacketSender(
         stopped = true
 
         val job = this.job
-        check(job!=null)
+        check(job != null)
 
-        val jobCompleted = withTimeoutOrNull(timeout){
+        val jobCompleted = withTimeoutOrNull(timeout) {
             job.join()
         }
 
-        if(jobCompleted==null){
+        if (jobCompleted == null) {
             job.cancel()
             job.join()
         }
         socket.close()
     }
+
+    fun snapshot(): ImuPacketSenderSnapshot {
+        return ImuPacketSenderSnapshot(
+            accelSentCount = nextSeq[MessageType.IMU_ACCEL],
+            gyroSentCount = nextSeq[MessageType.IMU_GYRO],
+            sendErrorCount = sendErrorCount,
+            lastSendErrorMessage = lastSendErrorMessage,
+        )
+    }
 }
+

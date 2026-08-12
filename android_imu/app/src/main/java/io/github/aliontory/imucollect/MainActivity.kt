@@ -1,14 +1,15 @@
 package io.github.aliontory.imucollect
 
+import android.app.Application
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -16,84 +17,101 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import io.github.aliontory.imucollect.ui.theme.ImuCollectTheme
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.net.DatagramPacket
-import java.net.DatagramSocket
-import java.net.InetAddress
 import java.util.Locale
-import kotlin.time.Duration
 import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.Duration.Companion.seconds
 
-private const val TAG = "MainActivity"
+//private const val TAG = "MainActivity"
 
 class MainActivity : ComponentActivity() {
-    private lateinit var imuSampler: ImuSampler
+    private val viewModel: MainViewModel by viewModels {
+        viewModelFactory {
+            initializer {
+                val application = (this[APPLICATION_KEY] as Application)
+                MainViewModel(1.seconds, application)
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        imuSampler = ImuSampler(this)
         enableEdgeToEdge()
         setContent {
-            ImuMenu(imuSampler)
+            ImuMenu(viewModel)
         }
     }
 
     override fun onResume() {
         super.onResume()
-        imuSampler.start()
     }
 
     override fun onPause() {
         super.onPause()
-        imuSampler.stop()
+        viewModel.onStop()
     }
 }
 
 @Composable
-fun ImuMenu(
-    imuSampler: ImuSampler,
-    updatePeriod: Duration = 1.seconds,
-    sensorSnapshotViewModel: SensorSnapshotViewModel = viewModel(
-        factory = viewModelFactory {
-            initializer {
-                SensorSnapshotViewModel(imuSampler, updatePeriod)
-            }
-        }
-    )
-) {
+fun ImuMenu(mainViewModel: MainViewModel) {
     ImuCollectTheme {
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
             Column(modifier = Modifier.padding(innerPadding)) {
-                SensorSnapshotMenu(imuSampler, sensorSnapshotViewModel)
-                UdpSendMenu()
+                CaptureAndSendStartMenu(mainViewModel)
+                SensorSnapshotMenu(mainViewModel)
             }
         }
     }
 }
 
 @Composable
-fun SensorSnapshotMenu(imuSampler: ImuSampler, sensorSnapshotViewModel: SensorSnapshotViewModel, modifier: Modifier = Modifier) {
-    Column(modifier = modifier.padding(16.dp)){
-        val sensorSnapshot by sensorSnapshotViewModel.sensorSnapshot.collectAsStateWithLifecycle()
-        Text(String.format(Locale.US,"가속도 - 요청 %dHz, 실측 %.6fHz, 표본 수 %d, 수집 간격 초과 %d", ImuSampler.SAMPLING_RATE_HZ, sensorSnapshot.accelHz, sensorSnapshot.accelCount, sensorSnapshot.accelGapExceedCount))
-        Text(String.format(Locale.US, "자이로 - 요청 %dHz, 실측 %.6fHz, 표본 수 %d, 수집 간격 초과 %d", ImuSampler.SAMPLING_RATE_HZ, sensorSnapshot.gyroHz, sensorSnapshot.gyroCount, sensorSnapshot.gyroGapExceedCount))
-        Text(String.format(Locale.US, "클럭 차이 - 최근 %dms, 최소 %dms, 최대 %dms", sensorSnapshot.clockDeltaLastNs.nanoseconds.inWholeMilliseconds, sensorSnapshot.clockDeltaMinNs.nanoseconds.inWholeMilliseconds, sensorSnapshot.clockDeltaMaxNs.nanoseconds.inWholeMilliseconds))
-        Text("Deep Sleep 시간 - 초기 ${sensorSnapshotViewModel.deepSleepTimeMsInitial}ms, 현재 ${sensorSnapshotViewModel.deepSleepTimeMs.collectAsStateWithLifecycle().value}ms")
-        Button(onClick = {imuSampler.resetClockDelta()}) {
+fun SensorSnapshotMenu(mainViewModel: MainViewModel, modifier: Modifier = Modifier) {
+    Column(modifier = modifier.padding(16.dp)) {
+        val imuSamplerSnapshot by mainViewModel.imuSamplerSnapshot.collectAsStateWithLifecycle()
+        Text(
+            String.format(
+                Locale.US,
+                "가속도 - 요청 %dHz, 실측 %.6fHz, 표본 수 %d, 수집 간격 초과 %d",
+                ImuSampler.SAMPLING_RATE_HZ,
+                imuSamplerSnapshot.accelHz,
+                imuSamplerSnapshot.accelCount,
+                imuSamplerSnapshot.accelGapExceedCount
+            )
+        )
+        Text(
+            String.format(
+                Locale.US,
+                "자이로 - 요청 %dHz, 실측 %.6fHz, 표본 수 %d, 수집 간격 초과 %d",
+                ImuSampler.SAMPLING_RATE_HZ,
+                imuSamplerSnapshot.gyroHz,
+                imuSamplerSnapshot.gyroCount,
+                imuSamplerSnapshot.gyroGapExceedCount
+            )
+        )
+        Text(
+            String.format(
+                Locale.US,
+                "클럭 차이 - 최근 %dms, 최소 %dms, 최대 %dms",
+                imuSamplerSnapshot.clockDeltaLastNs.nanoseconds.inWholeMilliseconds,
+                imuSamplerSnapshot.clockDeltaMinNs.nanoseconds.inWholeMilliseconds,
+                imuSamplerSnapshot.clockDeltaMaxNs.nanoseconds.inWholeMilliseconds
+            )
+        )
+        Text("수집 큐 오버플로: ${imuSamplerSnapshot.queueOverflowCount}")
+
+        Text("Deep Sleep 시간 - 초기 ${mainViewModel.deepSleepTimeMsInitial}ms, 현재 ${mainViewModel.deepSleepTimeMs.collectAsStateWithLifecycle().value}ms")
+
+        val imuPacketSenderSnapshot by mainViewModel.imuPacketSenderSnapshot.collectAsStateWithLifecycle()
+        Text("가속도 전송 수: ${imuPacketSenderSnapshot.accelSentCount}, 자이로 전송 수: ${imuPacketSenderSnapshot.gyroSentCount}")
+        Text("소켓 에러 수: ${imuPacketSenderSnapshot.sendErrorCount}, 최근 에러 메시지: ${imuPacketSenderSnapshot.lastSendErrorMessage}")
+
+        Button(onClick = mainViewModel::onResetClockDelta) {
             Text("클럭 차이 초기화")
         }
     }
@@ -101,18 +119,19 @@ fun SensorSnapshotMenu(imuSampler: ImuSampler, sensorSnapshotViewModel: SensorSn
 
 
 @Composable
-fun UdpSendMenu(modifier: Modifier = Modifier) {
+fun CaptureAndSendStartMenu(mainViewModel: MainViewModel, modifier: Modifier = Modifier) {
     Column(modifier = modifier.padding(16.dp)) {
-        val ipAddressState = rememberTextFieldState()
-        TextField(state = ipAddressState, label = { Text("IP 주소") })
-
-        val portState = rememberTextFieldState()
-        var errorMessage by remember { mutableStateOf<String?>(null) }
         TextField(
-            state = portState,
-            isError = errorMessage != null,
+            value = mainViewModel.host,
+            onValueChange = mainViewModel::onHostChange,
+            label = { Text("IP 주소") })
+
+        TextField(
+            value = mainViewModel.port,
+            onValueChange = mainViewModel::onPortChange,
+            isError = mainViewModel.portErrorMessage != null,
             supportingText = {
-                errorMessage?.let {
+                mainViewModel.portErrorMessage?.let {
                     Text(
                         it,
                         color = MaterialTheme.colorScheme.error
@@ -121,34 +140,14 @@ fun UdpSendMenu(modifier: Modifier = Modifier) {
             },
             label = { Text("포트 주소") })
 
-        val scope = rememberCoroutineScope()
-        Button(onClick = {
-            val port = portState.text.toString().toIntOrNull()
-            if (port == null) {
-                errorMessage = "포트 주소는 정수여야 합니다."
-            } else {
-                errorMessage = null
-                scope.launch {
-                    sendUdpMessage(ipAddressState.text.toString(), port, "Hello.")
-                }
+        Row(modifier = modifier.padding(16.dp)) {
+            Button(onClick = mainViewModel::onStart) {
+                Text("수집/전송 시작")
             }
 
-        }) {
-            Text("UDP 전송")
+            Button(onClick = mainViewModel::onStop) {
+                Text("수집/전송 중지")
+            }
         }
     }
-}
-
-suspend fun sendUdpMessage(address: String, port: Int, text: String) {
-    withContext(Dispatchers.IO) {
-        Log.i(TAG, "UDP 전송 시작. 주소 $address, 포트 $port.")
-        DatagramSocket().use { socket ->
-            val data = text.toByteArray()
-            val inetAddress = InetAddress.getByName(address)
-            val packet = DatagramPacket(data, data.size, inetAddress, port)
-            socket.send(packet)
-        }
-        Log.i(TAG, "UDP 전송 완료.")
-    }
-
 }

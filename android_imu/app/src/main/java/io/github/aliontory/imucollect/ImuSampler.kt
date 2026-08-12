@@ -10,8 +10,10 @@ import android.util.Log
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
 
-/** 센서 정보를 담는 타입 */
-data class SensorSnapshot(
+/**
+ * [ImuSampler]의 센서 수집 상태를 담는 타입.
+ */
+data class ImuSamplerSnapshot(
     /**
      * 가속도계 센서 데이터 수집 횟수.
      */
@@ -231,10 +233,10 @@ class ImuSampler(context: Context) {
     }
 
     /**
-     * 현재 센서 수집 현황을 나타내는 [SensorSnapshot] 객체를 만들어 반환한다.
+     * 현재 센서 수집 현황을 나타내는 [ImuSamplerSnapshot] 객체를 만들어 반환한다.
      */
-    fun snapshot(): SensorSnapshot {
-        return SensorSnapshot(
+    fun snapshot(): ImuSamplerSnapshot {
+        return ImuSamplerSnapshot(
             accelCount = accelerometerWindow.count,
             accelHz = accelerometerWindow.hz(),
             accelGapExceedCount = accelerometerWindow.gapThresholdExceededCount,
