@@ -77,14 +77,16 @@ class SeqTracker:
         순서에 무관해야 하므로 '기대값보다 크면 결번' 방식을 쓰지 않는다.
         UDP 에서 재정렬은 고장이 아니라 정상 동작이다.
         """
-        # TODO A: span 에서 고유 수신 개수를 뺀다.
-        #         self.received 가 아니라 self.unique 여야 한다 — 중복이 유실을 가릴 수 있다.
-        return 0
+        return self.span - self.unique
 
     def loss_rate(self) -> float:
         """유실률. span 이 0 이면 0.0."""
         # TODO B: lost / span
-        return 0.0
+        span = self.span
+        if span == 0:
+            return 0.0
+        else:
+            return self.lost() / span
 
     def source_hz(self):
         """소스(폰) 타임스탬프 기준 평균 주기.
