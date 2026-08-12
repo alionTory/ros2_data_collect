@@ -10,6 +10,8 @@ class ImuCaptureAndSendManager(context: Context) {
     private val imuSampler = ImuSampler(context)
     private var imuPacketSender: ImuPacketSender? = null
 
+    private var lastImuPacketSenderSnapshot = ImuPacketSenderSnapshot()
+
     var isActive = false
         private set
 
@@ -20,8 +22,8 @@ class ImuCaptureAndSendManager(context: Context) {
      *
      * ensure: isActive
      */
-    fun start(host: String, port:Int){
-        if(!isActive) {
+    fun start(host: String, port: Int) {
+        if (!isActive) {
             isActive = true
             val imuPacketSender = ImuPacketSender(host, port, imuSampler.queue)
             this.imuPacketSender = imuPacketSender
@@ -37,12 +39,12 @@ class ImuCaptureAndSendManager(context: Context) {
      *
      * ensure: !isActive
      */
-    fun stop(){
-        if(isActive) {
+    fun stop() {
+        if (isActive) {
             isActive = false
             imuSampler.stop()
             val imuPacketSender = this.imuPacketSender
-            check(imuPacketSender!=null)
+            check(imuPacketSender != null)
             CoroutineScope(Dispatchers.IO).launch {
                 imuPacketSender.stop(200.milliseconds)
             }
@@ -54,14 +56,18 @@ class ImuCaptureAndSendManager(context: Context) {
         get() = imuSampler.snapshot()
 
     val imuPacketSenderSnapshot: ImuPacketSenderSnapshot
-        get(){
-            return this.imuPacketSender?.snapshot() ?: ImuPacketSenderSnapshot()
+        get() {
+            val imuPacketSender = this.imuPacketSender
+            if (imuPacketSender != null) {
+                lastImuPacketSenderSnapshot = imuPacketSender.snapshot()
+            }
+            return lastImuPacketSenderSnapshot
         }
 
     /**
      * 센서 시계와 폰 시계 타임스탬프 값 차이 기록을 초기화한다.
      */
-    fun resetClockDelta(){
+    fun resetClockDelta() {
         imuSampler.resetClockDelta()
     }
 }
