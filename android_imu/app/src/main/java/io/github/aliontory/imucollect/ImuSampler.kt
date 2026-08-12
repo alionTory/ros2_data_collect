@@ -114,7 +114,7 @@ class ImuSampler(context: Context) {
         clockDelta = MinMaxLast()
     }
 
-    private var _queue = Channel<ImuSample>()
+    private var _queue = Channel<ImuSample>(capacity = 512)
 
     /**
      * [start] 호출 이후 IMU 데이터가 저장될 큐.
