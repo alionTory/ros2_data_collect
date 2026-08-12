@@ -135,7 +135,7 @@ class Imu(NamedTuple):
 
 def parse_imu(payload: bytes):
     try:
-        return Imu(IMU_SUBHEADER.unpack_from(payload))
+        return Imu(*IMU_SUBHEADER.unpack_from(payload))
     except struct.error as ex:
         raise ProtocolError(f"payload 길이 {len(payload)}가 헤더 길이 {AUDIO_SUBHEADER.size}보다 짧음.") from ex
     
