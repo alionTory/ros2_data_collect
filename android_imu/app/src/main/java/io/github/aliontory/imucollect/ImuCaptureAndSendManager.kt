@@ -10,6 +10,7 @@ class ImuCaptureAndSendManager(context: Context) {
     private val imuSampler = ImuSampler(context)
     private var imuPacketSender: ImuPacketSender? = null
 
+    @Volatile
     private var lastImuPacketSenderSnapshot = ImuPacketSenderSnapshot()
 
     var isActive = false
@@ -47,6 +48,7 @@ class ImuCaptureAndSendManager(context: Context) {
             check(imuPacketSender != null)
             CoroutineScope(Dispatchers.IO).launch {
                 imuPacketSender.stop(200.milliseconds)
+                lastImuPacketSenderSnapshot = imuPacketSender.snapshot()
             }
             this.imuPacketSender = null
         }
